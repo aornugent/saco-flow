@@ -52,26 +52,33 @@ Phased development from surface water routing to end-to-end simulation.
 
 ### Tasks
 
-| Task | File |
-|------|------|
-| Synthetic terrain (tilted plane, valley, hill) | `src/terrain.py` |
-| MFD flow direction computation | `src/kernels/flow.py` |
-| Iterative flow accumulation | `src/kernels/flow.py` |
-| Kinematic wave routing with CFL | `src/kernels/flow.py` |
-| Outlet boundary conditions | `src/kernels/flow.py` |
+| Task | File | Status |
+|------|------|--------|
+| Synthetic terrain (tilted plane, valley, hill) | `tests/conftest.py` | ✓ |
+| MFD flow direction computation | `src/kernels/flow.py` | ✓ |
+| Iterative flow accumulation | `src/kernels/flow.py` | ✓ |
+| Kinematic wave routing with CFL | `src/kernels/flow.py` | ✓ |
+| Outlet boundary conditions | `src/kernels/flow.py` | ✓ |
 
-### Tests
+### Tests (13 passing)
 
-- `test_flow_directions_tilted_plane` — all flow downslope
-- `test_flow_directions_symmetric` — symmetric terrain → symmetric flow
-- `test_flow_accumulation_conservation` — total in = total out
-- `test_routing_mass_conservation` — closed domain, h unchanged
-- `test_cfl_timestep_stability` — no blow-up
+- [x] `test_flow_directions_tilted_plane` — all flow downslope
+- [x] `test_flow_directions_symmetric` — symmetric terrain → symmetric flow
+- [x] `test_flat_terrain_flagged` — flat cells marked
+- [x] `test_flow_fractions_sum_to_one` — MFD fractions normalized
+- [x] `test_flow_accumulation_conservation` — total in = total out
+- [x] `test_accumulation_increases_downslope` — accumulation grows
+- [x] `test_routing_mass_conservation` — mass balance verified
+- [x] `test_water_flows_downslope` — center of mass moves south
+- [x] `test_no_flow_on_flat_terrain` — flat terrain stable
+- [x] `test_cfl_timestep_finite` — CFL returns valid dt
+- [x] `test_cfl_timestep_infinite_no_water` — no water → infinite dt
+- [x] `test_stability_with_cfl_timestep` — no NaN or negative values
 
 ### Exit Criteria
 
-- Flow directions correct on all synthetic terrains
-- Routing conserves mass to floating point tolerance
+- [x] Flow directions correct on all synthetic terrains
+- [x] Routing conserves mass to floating point tolerance
 
 ---
 
@@ -222,8 +229,8 @@ Per `ecohydro_spec.md` Section 14:
 
 ## Current Status
 
-**Completed:** Phase 0 (Project Setup)
+**Completed:** Phase 0 (Project Setup), Phase 1 (Surface Water Routing)
 
-**Active Phase:** 1 (Surface Water Routing)
+**Active Phase:** 2 (Infiltration & Soil Moisture)
 
-**Next Milestone:** MFD flow directions and kinematic wave routing on synthetic terrain
+**Next Milestone:** Vegetation-enhanced infiltration, ET, and soil moisture diffusion
