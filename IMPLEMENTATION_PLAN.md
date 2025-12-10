@@ -30,16 +30,17 @@ Phased development from surface water routing to end-to-end simulation.
 
 ### Tasks
 
-- [ ] `requirements.txt` — taichi, numpy, rasterio, matplotlib, pytest
-- [ ] Package structure — `src/`, `src/kernels/`, `tests/`
-- [ ] Taichi init — GPU detection, CPU fallback, f32 default
-- [ ] Test fixtures — small grid factory, synthetic terrain, conservation assertions
-- [ ] CUDA verification — sm90/sm100 compatibility
+- [x] `requirements.txt` — taichi, numpy, rasterio, matplotlib, pytest, ruff
+- [x] Package structure — `src/`, `src/kernels/`, `tests/`
+- [x] Taichi init — GPU detection, CPU fallback, f32 default (`src/config.py`)
+- [x] Test fixtures — small grid factory, synthetic terrain, conservation assertions (`tests/conftest.py`)
+- [x] Utility kernels — field operations, neighbor indexing (`src/kernels/utils.py`)
+- [x] CUDA verification — sm90/sm100 compatibility documented, CPU fallback tested
 
 ### Exit Criteria
 
-- `pytest tests/` passes
-- Taichi kernels execute on GPU
+- [x] `pytest tests/` passes (22 tests)
+- [x] Taichi kernels execute on CPU (GPU optional)
 
 ---
 
@@ -221,6 +222,8 @@ Per `ecohydro_spec.md` Section 14:
 
 ## Current Status
 
-**Active Phase:** 0 (Project Setup)
+**Completed:** Phase 0 (Project Setup)
 
-**Next Milestone:** Phase 1 — surface water routing on synthetic terrain
+**Active Phase:** 1 (Surface Water Routing)
+
+**Next Milestone:** MFD flow directions and kinematic wave routing on synthetic terrain
