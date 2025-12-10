@@ -8,6 +8,8 @@ Phased development from surface water routing to end-to-end simulation.
 2. **Test continuously** — Every kernel gets a conservation test
 3. **Defer optimization** — Correctness first, performance in Phase 6
 
+**Mass conservation** is verified throughout all phases (see `docs/mass_conservation.md`), not just at the end.
+
 ## Phase Overview
 
 | Phase | Focus | Key Docs |
@@ -17,7 +19,7 @@ Phased development from surface water routing to end-to-end simulation.
 | 2 | Infiltration & Soil | `docs/kernels/infiltration.md`, `docs/kernels/soil_moisture.md` |
 | 3 | Vegetation | `docs/kernels/vegetation.md` |
 | 4 | Integration | `docs/timesteps.md`, `docs/boundaries.md` |
-| 5 | Validation | `docs/mass_conservation.md` |
+| 5 | Validation | `docs/overview.md`, `ecohydro_spec.md:786-803` |
 | 6 | Optimization | `ecohydro_spec.md:609-714` |
 
 ---
@@ -161,26 +163,28 @@ Phased development from surface water routing to end-to-end simulation.
 
 ## Phase 5: Validation
 
-**Goal:** Verify physically reasonable results.
+**Goal:** Verify pattern formation and physical plausibility.
 
-**Read:** `docs/mass_conservation.md`
+**Read:** `docs/overview.md` (feedback mechanism), `ecohydro_spec.md:786-803` (spinup protocol)
 
 ### Tasks
 
-- Implement diagnostic kernel (total water, cumulative fluxes)
 - Long simulation (decades) on tilted plane
 - Visual inspection for pattern emergence
-- FFT analysis of vegetation wavelength
+- FFT analysis of vegetation field (characteristic wavelength)
+- Parameter sensitivity: vary infiltration feedback, rainfall frequency
 
 ### Tests
 
-- `test_long_run_stability` — no drift over decades
+- `test_long_run_stability` — no numerical drift over decades
 - `test_pattern_emerges` — vegetation not uniform after spinup
+- `test_pattern_wavelength_reasonable` — matches expected spatial scale
 
 ### Exit Criteria
 
-- Mass conservation holds over long runs
 - Patterns emerge from uniform initial conditions
+- Spatial wavelength in physically reasonable range
+- System stable over long simulations
 
 ---
 
