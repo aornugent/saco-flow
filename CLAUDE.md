@@ -1,43 +1,41 @@
 # CLAUDE.md
 
-GPU-accelerated ecohydrological simulation using Taichi. See `ecohydro_spec.md` for the math, `IMPLEMENTATION_PLAN.md` for current priorities.
+GPU-accelerated ecohydrological simulation using Taichi (H100/B200).
 
 ## Principles
 
-1. **Simplicity first** - Naive implementation before optimization. Three similar lines beat a clever abstraction.
-2. **Correctness before speed** - Tests alongside implementation. Every kernel needs a mass conservation test.
-3. **Explicit over implicit** - Physical variable names with units in comments. No hidden state.
+1. **Simplicity first** - Naive implementation before optimization
+2. **Correctness before speed** - Every kernel needs a mass conservation test
+3. **Explicit over implicit** - Physical variable names, units in comments
+
+## Before Starting Work
+
+Read the docs relevant to your task:
+
+| Task | Read |
+|------|------|
+| Understanding the system | `docs/overview.md`, `ecohydro_spec.md` |
+| Flow direction/routing | `docs/kernels/flow_directions.md`, `docs/kernels/surface_routing.md` |
+| Flow accumulation | `docs/kernels/flow_accumulation.md` |
+| Infiltration | `docs/kernels/infiltration.md` |
+| Soil moisture | `docs/kernels/soil_moisture.md` |
+| Vegetation | `docs/kernels/vegetation.md` |
+| Boundary handling | `docs/boundaries.md` |
+| Timestep strategy | `docs/timesteps.md` |
+| Memory layout | `docs/data_structures.md` |
+| Testing/debugging | `docs/mass_conservation.md` |
+| Current priorities | `IMPLEMENTATION_PLAN.md` |
 
 ## Conventions
 
-```python
-# Fields: snake_case, document units
-surface_water = ti.field(dtype=ti.f32, shape=(N, N))  # [m]
-
-# Kernels: verb phrases, docstring with governing equation
-@ti.kernel
-def compute_flow_directions():
-    """Compute MFD fractions: f_k = S_k^p / sum(S_m^p)"""
-    ...
-
-# Parameters: group in dataclasses with units
-@dataclass
-class InfiltrationParams:
-    alpha: float = 0.1  # infiltration rate [day⁻¹]
-```
-
-**Naming:** `snake_case` for fields/kernels, `UPPER_SNAKE_CASE` for constants, `test_<what>_<expected>` for tests.
-
-## Key Gotchas
-
-- **Flat cells:** Flag with `flow_frac[i,j,0] = -1.0`, handle separately
-- **Boundaries:** Mask 0=inactive, 1=active. Neumann for diffusion, outflow for surface water
-- **Stability:** CFL for routing (`dt <= dx/v`), diffusion limit (`dt <= dx²/4D`), always clamp to physical bounds
-- **Flow accumulation:** 20-50 iterations typically sufficient; perfect convergence unnecessary
+- **Fields:** `snake_case`, document units in comments
+- **Kernels:** `snake_case` verb phrases, docstring with equation
+- **Constants:** `UPPER_SNAKE_CASE`
+- **Tests:** `test_<what>_<expected>`
 
 ## Workflow
 
-1. Read relevant section of `ecohydro_spec.md`
+1. Read relevant doc from table above
 2. Write test first (conservation + edge cases)
 3. Implement simply, verify mass balance
 4. Document with equation and units
