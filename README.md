@@ -68,28 +68,26 @@ saco-flow/
 ├── README.md                 # This file
 ├── AGENTS.md                 # Guidelines for AI coding agents
 ├── IMPLEMENTATION_PLAN.md    # Phased development roadmap
-├── ecohydro_spec.md          # Mathematical specification
-├── requirements.txt          # Python dependencies
-├── src/
-│   ├── __init__.py
-│   ├── fields.py             # Taichi field definitions
+├── ecohydro_spec.md          # Mathematical specification (authoritative)
+├── docs/                     # Component documentation
+│   ├── overview.md           # State variables, governing equations
+│   ├── boundaries.md         # Domain mask, outlets, depressions
+│   ├── timesteps.md          # Operator splitting, CFL conditions
+│   ├── data_structures.md    # Memory layout, neighbor indexing
+│   ├── mass_conservation.md  # Verification and debugging
+│   └── kernels/              # Per-kernel documentation
+│       ├── flow_directions.md
+│       ├── flow_accumulation.md
+│       ├── surface_routing.md
+│       ├── infiltration.md
+│       ├── soil_moisture.md
+│       └── vegetation.md
+├── src/                      # Implementation (to be created)
 │   ├── kernels/
-│   │   ├── __init__.py
-│   │   ├── flow.py           # Flow direction and routing
-│   │   ├── infiltration.py   # Infiltration dynamics
-│   │   ├── soil.py           # Soil moisture update
-│   │   └── vegetation.py     # Vegetation dynamics
-│   ├── terrain.py            # DEM loading and synthetic terrain
-│   ├── simulation.py         # Main simulation loop
-│   └── output.py             # GeoTIFF output and thumbnails
-├── tests/
-│   ├── __init__.py
-│   ├── test_mass_conservation.py
-│   ├── test_flow_directions.py
-│   └── test_synthetic_terrain.py
-└── examples/
-    ├── tilted_plane.py       # Simplest test case
-    └── hillslope.py          # Idealized hillslope
+│   ├── terrain.py
+│   ├── simulation.py
+│   └── output.py
+└── tests/                    # Test suite (to be created)
 ```
 
 ## Quick Start
@@ -116,9 +114,9 @@ sim.run(years=10, output_interval_days=30)
 
 ## Development Status
 
-See `IMPLEMENTATION_PLAN.md` for the current roadmap. This project is in early development.
+See `IMPLEMENTATION_PLAN.md` for the roadmap. This project is in early development.
 
-**Current phase:** Core Infrastructure
+**Current phase:** Phase 0 (Project Setup)
 
 ## Testing
 
