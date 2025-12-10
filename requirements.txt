@@ -1,0 +1,18 @@
+# Core GPU computing framework
+taichi>=1.7.0
+
+# Numerical computing
+numpy>=1.24.0
+
+# Geospatial data I/O
+rasterio>=1.3.0
+
+# Visualization
+matplotlib>=3.7.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+
+# GPU monitoring (optional, for CUDA compute capability detection)
+nvidia-ml-py3>=11.0.0
