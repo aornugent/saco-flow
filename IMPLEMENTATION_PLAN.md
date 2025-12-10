@@ -90,24 +90,33 @@ Phased development from surface water routing to end-to-end simulation.
 
 ### Tasks
 
-| Task | File |
-|------|------|
-| Vegetation-enhanced infiltration | `src/kernels/infiltration.py` |
-| Evapotranspiration | `src/kernels/soil.py` |
-| Deep leakage | `src/kernels/soil.py` |
-| Soil moisture diffusion (5-point Laplacian) | `src/kernels/soil.py` |
+| Task | File | Status |
+|------|------|--------|
+| Vegetation-enhanced infiltration | `src/kernels/infiltration.py` | ✓ |
+| Evapotranspiration | `src/kernels/soil.py` | ✓ |
+| Deep leakage | `src/kernels/soil.py` | ✓ |
+| Soil moisture diffusion (5-point Laplacian) | `src/kernels/soil.py` | ✓ |
 
-### Tests
+### Tests (22 passing)
 
-- `test_infiltration_conservation` — Δh = -ΔM
-- `test_infiltration_saturation_limit` — no infiltration when M = M_sat
-- `test_et_reduces_moisture` — ET decreases M
-- `test_diffusion_conservation` — total M unchanged (no sources/sinks)
+- [x] `test_conservation_h_to_M` — Δh = -ΔM
+- [x] `test_no_infiltration_when_saturated` — no infiltration when M = M_sat
+- [x] `test_no_infiltration_when_dry_surface` — no infiltration when h = 0
+- [x] `test_vegetation_enhances_infiltration` — more veg → more infiltration
+- [x] `test_infiltration_limited_by_available_water` — can't exceed h
+- [x] `test_infiltration_limited_by_capacity` — can't exceed M_sat
+- [x] `test_et_reduces_moisture` — ET decreases M
+- [x] `test_vegetation_enhances_et` — more veg → more ET
+- [x] `test_leakage_reduces_moisture` — leakage decreases M
+- [x] `test_leakage_quadratic` — wet soil leaks more
+- [x] `test_diffusion_conserves_mass` — total M unchanged
+- [x] `test_diffusion_smooths_gradient` — variance decreases
+- [x] `test_diffusion_timestep_stability` — stable at computed dt
 
 ### Exit Criteria
 
-- Infiltration conserves mass with vegetation feedback
-- Diffusion stable and conserving
+- [x] Infiltration conserves mass with vegetation feedback
+- [x] Diffusion stable and conserving
 
 ---
 
@@ -229,8 +238,8 @@ Per `ecohydro_spec.md` Section 14:
 
 ## Current Status
 
-**Completed:** Phase 0 (Project Setup), Phase 1 (Surface Water Routing)
+**Completed:** Phase 0 (Project Setup), Phase 1 (Surface Water Routing), Phase 2 (Infiltration & Soil Moisture)
 
-**Active Phase:** 2 (Infiltration & Soil Moisture)
+**Active Phase:** 3 (Vegetation Dynamics)
 
-**Next Milestone:** Vegetation-enhanced infiltration, ET, and soil moisture diffusion
+**Next Milestone:** Monod growth, mortality, and seed dispersal
