@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 GPU-accelerated ecohydrological simulation using Taichi (H100/B200).
 
@@ -32,6 +32,35 @@ Read the docs relevant to your task:
 - **Kernels:** `snake_case` verb phrases, docstring with equation
 - **Constants:** `UPPER_SNAKE_CASE`
 - **Tests:** `test_<what>_<expected>`
+
+## Kernel Pattern
+
+```python
+@ti.kernel
+def update_soil_moisture(dt: ti.f32):
+    """Update soil moisture. Physics: dM/dt = -ET - L + D∇²M"""
+    for i, j in ti.ndrange((1, N-1), (1, N-1)):
+        if mask[i, j] == 0:
+            continue
+        # ... compute fluxes ...
+        M_new[i, j] = ti.max(0.0, ti.min(M_sat, M_local + dM))
+```
+
+Key points: check mask, clamp to physical bounds, use double buffering for stencils.
+
+## Gotchas
+
+- **Flat cells**: Flag with `flow_frac[i,j,0] = -1.0` — no downslope neighbors
+- **Boundaries**: Always check `mask[ni, nj] == 1` before reading neighbors
+- **Stability**: CFL for routing `dt ≤ dx/v`, diffusion `dt ≤ dx²/4D`
+- **Conservation**: If mass isn't conserved, check boundary fluxes and clamping
+
+## Debugging Mass Errors
+
+1. Test on flat terrain with uniform initial conditions
+2. Track each flux term separately (infiltration, ET, leakage, outflow)
+3. Check boundary cells — water escaping without being counted?
+4. Verify timestep satisfies stability constraints
 
 ## Workflow
 
