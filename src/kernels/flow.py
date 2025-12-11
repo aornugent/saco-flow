@@ -152,6 +152,10 @@ def compute_outflow(
 
     Uses kinematic wave: v = h^(2/3) * sqrt(S) / n
     CFL-limited: q_out <= h/dt
+
+    Distance weighting: outflow rate scaled by weighted average distance
+    to receiving neighbors. Diagonal flow (dist=√2) has lower effective
+    flux rate than cardinal flow (dist=1) to maintain correct velocity.
     """
     n = h.shape[0]
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
@@ -164,20 +168,26 @@ def compute_outflow(
             q_out[i, j] = 0.0
             continue
 
-        # Find maximum slope among flow directions
+        # Find maximum slope and weighted average distance to receivers
         S_max = ti.cast(0.0, DTYPE)
+        dist_weighted = ti.cast(0.0, DTYPE)
         for k in ti.static(range(8)):
-            if flow_frac[i, j, k] > 0:
+            frac = flow_frac[i, j, k]
+            if frac > 0:
                 ni = i + NEIGHBOR_DI[k]
                 nj = j + NEIGHBOR_DJ[k]
                 S = (Z[i, j] - Z[ni, nj]) / (NEIGHBOR_DIST[k] * dx)
                 S_max = ti.max(S_max, S)
+                # Weight distance by flow fraction
+                dist_weighted += frac * NEIGHBOR_DIST[k]
 
-        if S_max > 0:
+        if S_max > 0 and dist_weighted > 0:
             # Kinematic wave velocity
             v = ti.pow(h_local, 2.0 / 3.0) * ti.sqrt(S_max) / manning_n
-            # CFL-limited outflow rate [m/s] * [m] / [m] = [m/s]
-            q_out[i, j] = ti.min(h_local / dt, v * h_local / dx)
+            # CFL-limited outflow with distance-weighted effective dx
+            # This ensures diagonal flow is correctly slower than cardinal
+            effective_dx = dist_weighted * dx
+            q_out[i, j] = ti.min(h_local / dt, v * h_local / effective_dx)
         else:
             q_out[i, j] = 0.0
 
