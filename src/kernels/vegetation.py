@@ -12,6 +12,7 @@ Where:
 import taichi as ti
 
 from src.config import DTYPE
+from src.kernels.utils import copy_field
 
 
 @ti.kernel
@@ -126,13 +127,6 @@ def vegetation_diffusion_step(
         P_new[i, j] = ti.max(0.0, P_local + dP)
 
 
-@ti.kernel
-def _copy_field(src: ti.template(), dst: ti.template()):
-    """Copy src to dst."""
-    for I in ti.grouped(src):
-        dst[I] = src[I]
-
-
 def vegetation_step(
     P, P_new, M, mask, g_max, k_G, mu, D_P, dx, dt
 ) -> tuple[float, float]:
@@ -146,30 +140,24 @@ def vegetation_step(
 
     # Diffusion uses double buffering
     vegetation_diffusion_step(P, P_new, mask, D_P, dx, dt)
-    _copy_field(P_new, P)
+    copy_field(P_new, P)
 
     return float(total_growth), float(total_mortality)
 
 
-def compute_equilibrium_biomass(g_max: float, k_G: float, mu: float, M: float) -> float:
+def compute_equilibrium_moisture(g_max: float, k_G: float, mu: float) -> float:
     """
-    Compute equilibrium biomass for given moisture.
+    Compute the moisture level where growth rate equals mortality rate.
 
-    At equilibrium: G(M) = μ
-    g_max · M / (M + k_G) = μ
+    At equilibrium: G(M) = μ  =>  g_max · M / (M + k_G) = μ
 
-    This gives the growth rate, not the biomass level.
-    Biomass is stable when growth rate = mortality rate.
+    Solving for M:
+        M = μ · k_G / (g_max - μ)
 
-    Returns the moisture level where growth = mortality, or inf if never.
+    Returns the equilibrium moisture, or inf if growth never exceeds mortality.
     """
-    # G(M) = μ  =>  g_max · M / (M + k_G) = μ
-    # g_max · M = μ · (M + k_G)
-    # g_max · M = μ · M + μ · k_G
-    # M · (g_max - μ) = μ · k_G
-    # M = μ · k_G / (g_max - μ)
     if g_max <= mu:
-        return float("inf")  # Growth never exceeds mortality
+        return float("inf")
     return mu * k_G / (g_max - mu)
 
 

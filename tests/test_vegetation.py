@@ -6,7 +6,7 @@ import numpy as np
 
 from src.kernels.utils import compute_total, fill_field
 from src.kernels.vegetation import (
-    compute_equilibrium_biomass,
+    compute_equilibrium_moisture,
     compute_vegetation_timestep,
     growth_step,
     mortality_step,
@@ -278,7 +278,7 @@ class TestCombinedVegetation:
         mu = 0.01
 
         # Set moisture at equilibrium: G(M) = μ => M = μ·k_G / (g_max - μ)
-        M_eq = compute_equilibrium_biomass(g_max, k_G, mu, 0)
+        M_eq = compute_equilibrium_moisture(g_max, k_G, mu)
         fill_field(fields.P, 1.0)
         fill_field(fields.M, M_eq)
 
@@ -325,16 +325,16 @@ class TestCombinedVegetation:
 
 
 class TestEquilibriumCalculation:
-    """Test equilibrium biomass calculation."""
+    """Test equilibrium moisture calculation."""
 
     def test_equilibrium_moisture_positive(self):
         """Equilibrium moisture should be positive when growth > mortality."""
-        M_eq = compute_equilibrium_biomass(g_max=0.1, k_G=0.1, mu=0.01, M=0)
+        M_eq = compute_equilibrium_moisture(g_max=0.1, k_G=0.1, mu=0.01)
         assert M_eq > 0
 
     def test_equilibrium_infinite_when_mortality_dominates(self):
         """When mortality >= growth rate, equilibrium is impossible."""
-        M_eq = compute_equilibrium_biomass(g_max=0.01, k_G=0.1, mu=0.1, M=0)
+        M_eq = compute_equilibrium_moisture(g_max=0.01, k_G=0.1, mu=0.1)
         assert M_eq == float("inf")
 
 

@@ -9,6 +9,7 @@ Soil moisture dynamics: ET, deep leakage, and lateral diffusion.
 import taichi as ti
 
 from src.config import DTYPE
+from src.kernels.utils import copy_field
 
 
 @ti.kernel
@@ -124,14 +125,12 @@ def diffusion_step(
 
         # 5-point Laplacian with Neumann BC
         laplacian = ti.cast(0.0, DTYPE)
-        neighbor_count = 0
 
         # Check 4 cardinal neighbors
         for di, dj in ti.static([(-1, 0), (1, 0), (0, -1), (0, 1)]):
             ni, nj = i + di, j + dj
             if mask[ni, nj] == 1:
                 laplacian += M[ni, nj] - M_local
-                neighbor_count += 1
 
         # Apply diffusion
         dM = coeff * laplacian
@@ -154,16 +153,9 @@ def soil_moisture_step(
     diffusion_step(M, M_new, mask, D_M, dx, dt)
 
     # Copy back
-    _copy_field(M_new, M)
+    copy_field(M_new, M)
 
     return float(total_et), float(total_leakage)
-
-
-@ti.kernel
-def _copy_field(src: ti.template(), dst: ti.template()):
-    """Copy src to dst."""
-    for I in ti.grouped(src):
-        dst[I] = src[I]
 
 
 def compute_diffusion_timestep(D_M: float, dx: float, cfl: float = 0.25) -> float:

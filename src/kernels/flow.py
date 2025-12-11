@@ -8,7 +8,7 @@ proportional to slope^p. Routing uses kinematic wave with CFL limiting.
 import taichi as ti
 
 from src.config import DTYPE
-from src.kernels.utils import NEIGHBOR_DI, NEIGHBOR_DIST, NEIGHBOR_DJ
+from src.kernels.utils import NEIGHBOR_DI, NEIGHBOR_DIST, NEIGHBOR_DJ, copy_field
 
 # Flow exponent: 1.0=diffuse, 1.5=default, >5=approaches D8
 FLOW_EXPONENT = 1.5
@@ -107,13 +107,6 @@ def flow_accumulation_step(
     return max_change
 
 
-@ti.kernel
-def swap_fields(src: ti.template(), dst: ti.template()):
-    """Copy src to dst (for double-buffer swap)."""
-    for I in ti.grouped(src):
-        dst[I] = src[I]
-
-
 def compute_flow_accumulation(
     local_source,
     flow_acc,
@@ -129,13 +122,13 @@ def compute_flow_accumulation(
     Returns number of iterations taken.
     """
     # Initialize accumulation with local source
-    swap_fields(local_source, flow_acc)
+    copy_field(local_source, flow_acc)
 
     for iteration in range(max_iters):
         change = flow_accumulation_step(
             local_source, flow_acc, flow_acc_new, flow_frac, mask
         )
-        swap_fields(flow_acc_new, flow_acc)
+        copy_field(flow_acc_new, flow_acc)
 
         if change < tol:
             return iteration + 1
