@@ -65,7 +65,8 @@ class DefaultParams:
     INTERSTORM: float = 18.0  # mean interstorm period [days] (~365/20 events/year)
 
     # Infiltration
-    K_SAT: float = 0.24  # saturated hydraulic conductivity [m/day]
+    K_SAT: float = 0.24  # saturated hydraulic conductivity [m/day] (for reference)
+    ALPHA: float = 0.1  # infiltration rate coefficient [1/day]
     ALPHA_I: float = 2.0  # infiltration feedback strength [-]
     K_P: float = 1.0  # vegetation half-saturation for infiltration [kg/m²]
     W_0: float = 0.2  # bare soil infiltration factor [-]

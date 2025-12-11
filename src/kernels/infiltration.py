@@ -28,8 +28,14 @@ def infiltration_step(
     I = α · h · veg_factor · sat_factor · dt
 
     Where:
-        veg_factor = (P + k_P·W_0) / (P + k_P)  -- vegetation enhancement
-        sat_factor = max(0, 1 - M/M_sat)        -- saturation limit
+        α = infiltration rate coefficient [1/day]
+        h = surface water depth [m]
+        veg_factor = (P + k_P·W_0) / (P + k_P)  -- vegetation enhancement [-]
+        sat_factor = max(0, 1 - M/M_sat)        -- saturation limit [-]
+        dt = timestep [day]
+        I = infiltrated depth [m]
+
+    Dimensional check: [1/day] × [m] × [-] × [-] × [day] = [m] ✓
 
     Returns total infiltrated volume for mass balance tracking.
     """

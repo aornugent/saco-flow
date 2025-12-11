@@ -122,7 +122,7 @@ class SimulationParams:
     interstorm: float = DefaultParams.INTERSTORM  # [days]
 
     # Infiltration
-    alpha: float = DefaultParams.K_SAT  # infiltration rate [m/day]
+    alpha: float = DefaultParams.ALPHA  # infiltration rate coefficient [1/day]
     k_P: float = DefaultParams.K_P  # vegetation half-sat [kg/m²]
     W_0: float = DefaultParams.W_0  # bare soil factor [-]
     M_sat: float = DefaultParams.M_SAT  # saturation [m]
