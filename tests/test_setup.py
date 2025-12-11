@@ -267,8 +267,8 @@ class TestDefaultParameters:
         assert hasattr(p, "D_SOIL")
 
         # Vegetation
-        assert hasattr(p, "C_GROWTH")
-        assert hasattr(p, "K_HALF")
+        assert hasattr(p, "G_MAX")
+        assert hasattr(p, "K_G")
         assert hasattr(p, "MORTALITY")
         assert hasattr(p, "D_VEG")
 

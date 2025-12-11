@@ -54,32 +54,40 @@ def init_taichi(backend: str | None = None, debug: bool | None = None) -> str:
 
 
 class DefaultParams:
-    """Default simulation parameters from Saco et al. (2013). Units: meters, hours."""
+    """Default simulation parameters from Saco et al. (2013). Units: meters, days."""
 
     # Grid
     DX: float = 1.0  # cell size [m]
 
-    # Rainfall
-    R_MEAN: float = 0.01  # intensity [m/hr]
-    STORM_DURATION: float = 2.0  # [hr]
-    INTERSTORM: float = 100.0  # mean interstorm period [hr]
+    # Rainfall (intensity-based)
+    R_MEAN: float = 0.02  # mean event depth [m] (~20mm)
+    STORM_DURATION: float = 0.25  # event duration [days] (~6 hours)
+    INTERSTORM: float = 18.0  # mean interstorm period [days] (~365/20 events/year)
 
     # Infiltration
-    K_SAT: float = 0.01  # saturated hydraulic conductivity [m/hr]
+    K_SAT: float = 0.24  # saturated hydraulic conductivity [m/day]
     ALPHA_I: float = 2.0  # infiltration feedback strength [-]
+    K_P: float = 1.0  # vegetation half-saturation for infiltration [kg/m²]
+    W_0: float = 0.2  # bare soil infiltration factor [-]
 
     # Soil moisture
-    M_SAT: float = 0.4  # saturated moisture [-]
-    ET_MAX: float = 0.001  # max ET rate [m/hr]
-    LEAKAGE: float = 0.0001  # deep leakage [1/hr]
-    D_SOIL: float = 0.01  # diffusivity [m²/hr]
+    M_SAT: float = 0.4  # saturated moisture [m]
+    ET_MAX: float = 0.005  # max ET rate [m/day] (~5mm/day)
+    K_ET: float = 0.1  # ET half-saturation moisture [m]
+    BETA_ET: float = 0.5  # vegetation enhancement of ET [-]
+    LEAKAGE: float = 0.002  # deep leakage coefficient [1/day]
+    D_SOIL: float = 0.1  # soil moisture diffusivity [m²/day]
 
     # Vegetation
-    C_GROWTH: float = 0.1  # growth coefficient [1/hr]
-    K_HALF: float = 0.1  # half-saturation moisture [-]
-    MORTALITY: float = 0.01  # mortality rate [1/hr]
-    D_VEG: float = 0.1  # seed dispersal [m²/hr]
+    G_MAX: float = 0.02  # max growth rate [1/day]
+    K_G: float = 0.1  # growth half-saturation moisture [m]
+    MORTALITY: float = 0.001  # mortality rate [1/day]
+    D_VEG: float = 0.01  # seed dispersal diffusivity [m²/day]
 
     # Surface routing
-    MANNING_N: float = 0.03  # roughness [-]
-    MIN_SLOPE: float = 1e-6  # minimum slope [-]
+    MANNING_N: float = 0.03  # Manning's roughness coefficient [-]
+    MIN_SLOPE: float = 1e-6  # minimum slope for flow [-]
+
+    # Drainage (for rainfall event completion)
+    H_THRESHOLD: float = 1e-6  # water depth threshold [m]
+    DRAINAGE_TIME: float = 1.0  # extra drainage time after event [days]
