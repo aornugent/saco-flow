@@ -3,9 +3,8 @@ Tests for flow direction, accumulation, and surface water routing.
 """
 
 import numpy as np
-import taichi as ti
 
-from src.config import DTYPE, DefaultParams
+from src.config import DefaultParams
 from src.kernels.flow import (
     FLOW_EXPONENT,
     compute_cfl_timestep,
@@ -134,22 +133,19 @@ class TestFlowAccumulation:
         fields = grid_factory(n=n)
         tilted_plane(fields, slope=0.1, direction="south")
 
-        flow_acc = ti.field(dtype=DTYPE, shape=(n, n))
-        flow_acc_new = ti.field(dtype=DTYPE, shape=(n, n))
-        local_source = ti.field(dtype=DTYPE, shape=(n, n))
-
-        fill_field(local_source, 1.0)
+        fill_field(fields.local_source, 1.0)
 
         compute_flow_directions(
             fields.Z, fields.mask, fields.flow_frac, 1.0, FLOW_EXPONENT
         )
 
         compute_flow_accumulation(
-            local_source, flow_acc, flow_acc_new, fields.flow_frac, fields.mask,
+            fields.local_source, fields.flow_acc, fields.flow_acc_new,
+            fields.flow_frac, fields.mask,
             max_iters=100, tol=1e-6,
         )
 
-        acc = flow_acc.to_numpy()
+        acc = fields.flow_acc.to_numpy()
         mask = fields.mask.to_numpy()
 
         total_input = np.sum(mask == 1)
@@ -163,22 +159,19 @@ class TestFlowAccumulation:
         fields = grid_factory(n=n)
         tilted_plane(fields, slope=0.1, direction="south")
 
-        flow_acc = ti.field(dtype=DTYPE, shape=(n, n))
-        flow_acc_new = ti.field(dtype=DTYPE, shape=(n, n))
-        local_source = ti.field(dtype=DTYPE, shape=(n, n))
-
-        fill_field(local_source, 1.0)
+        fill_field(fields.local_source, 1.0)
 
         compute_flow_directions(
             fields.Z, fields.mask, fields.flow_frac, 1.0, FLOW_EXPONENT
         )
 
         compute_flow_accumulation(
-            local_source, flow_acc, flow_acc_new, fields.flow_frac, fields.mask,
+            fields.local_source, fields.flow_acc, fields.flow_acc_new,
+            fields.flow_frac, fields.mask,
             max_iters=100, tol=1e-6,
         )
 
-        acc = flow_acc.to_numpy()
+        acc = fields.flow_acc.to_numpy()
         col = n // 2
 
         for i in range(3, n - 3):
@@ -194,7 +187,6 @@ class TestSurfaceRouting:
         fields = grid_factory(n=n)
         tilted_plane(fields, slope=0.1, direction="south")
 
-        q_out = ti.field(dtype=DTYPE, shape=(n, n))
         fill_field(fields.h, 0.01)
 
         compute_flow_directions(
@@ -210,7 +202,8 @@ class TestSurfaceRouting:
         total_boundary_outflow = 0.0
         for _ in range(10):
             boundary_out = route_surface_water(
-                fields.h, fields.Z, fields.flow_frac, fields.mask, q_out, dx, dt, manning_n
+                fields.h, fields.Z, fields.flow_frac, fields.mask,
+                fields.q_out, dx, dt, manning_n
             )
             total_boundary_outflow += boundary_out
 
@@ -225,8 +218,6 @@ class TestSurfaceRouting:
         n = 32
         fields = grid_factory(n=n)
         tilted_plane(fields, slope=0.1, direction="south")
-
-        q_out = ti.field(dtype=DTYPE, shape=(n, n))
 
         # Add water in middle rows
         h_np = np.zeros((n, n), dtype=np.float32)
@@ -256,7 +247,8 @@ class TestSurfaceRouting:
                 break
             dt = min(dt, 0.5)
             route_surface_water(
-                fields.h, fields.Z, fields.flow_frac, fields.mask, q_out, dx, dt, manning_n
+                fields.h, fields.Z, fields.flow_frac, fields.mask,
+                fields.q_out, dx, dt, manning_n
             )
 
         # Compute final center of mass
@@ -273,7 +265,6 @@ class TestSurfaceRouting:
         fields = grid_factory(n=n)
         flat_terrain(fields)
 
-        q_out = ti.field(dtype=DTYPE, shape=(n, n))
         fill_field(fields.h, 0.01)
 
         compute_flow_directions(
@@ -284,7 +275,7 @@ class TestSurfaceRouting:
 
         for _ in range(10):
             route_surface_water(
-                fields.h, fields.Z, fields.flow_frac, fields.mask, q_out,
+                fields.h, fields.Z, fields.flow_frac, fields.mask, fields.q_out,
                 DefaultParams.DX, 0.1, DefaultParams.MANNING_N
             )
 
@@ -334,7 +325,6 @@ class TestCFLTimestep:
         fields = grid_factory(n=32)
         tilted_plane(fields, slope=0.1, direction="south")
 
-        q_out = ti.field(dtype=DTYPE, shape=(32, 32))
         fill_field(fields.h, 0.05)
 
         compute_flow_directions(
@@ -352,7 +342,8 @@ class TestCFLTimestep:
                 break
             dt = min(dt, 1.0)
             route_surface_water(
-                fields.h, fields.Z, fields.flow_frac, fields.mask, q_out, dx, dt, manning_n
+                fields.h, fields.Z, fields.flow_frac, fields.mask,
+                fields.q_out, dx, dt, manning_n
             )
 
         h_final = fields.h.to_numpy()

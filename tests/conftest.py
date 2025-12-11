@@ -30,8 +30,8 @@ def create_fields(n: int = 32) -> SimpleNamespace:
 
     # Primary state variables
     fields.h = ti.field(dtype=DTYPE, shape=(n, n))  # Surface water [m]
-    fields.M = ti.field(dtype=DTYPE, shape=(n, n))  # Soil moisture [-]
-    fields.P = ti.field(dtype=DTYPE, shape=(n, n))  # Vegetation [-]
+    fields.M = ti.field(dtype=DTYPE, shape=(n, n))  # Soil moisture [m]
+    fields.P = ti.field(dtype=DTYPE, shape=(n, n))  # Vegetation [kg/m²]
 
     # Static fields
     fields.Z = ti.field(dtype=DTYPE, shape=(n, n))  # Elevation [m]
@@ -44,6 +44,12 @@ def create_fields(n: int = 32) -> SimpleNamespace:
     fields.h_new = ti.field(dtype=DTYPE, shape=(n, n))
     fields.M_new = ti.field(dtype=DTYPE, shape=(n, n))
     fields.P_new = ti.field(dtype=DTYPE, shape=(n, n))
+
+    # Flow routing fields
+    fields.q_out = ti.field(dtype=DTYPE, shape=(n, n))  # Outflow rate [m/day]
+    fields.flow_acc = ti.field(dtype=DTYPE, shape=(n, n))  # Flow accumulation
+    fields.flow_acc_new = ti.field(dtype=DTYPE, shape=(n, n))  # Flow acc buffer
+    fields.local_source = ti.field(dtype=DTYPE, shape=(n, n))  # Local contribution
 
     return fields
 
