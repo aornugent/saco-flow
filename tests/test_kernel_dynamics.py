@@ -733,3 +733,417 @@ class TestPhysicalConstraints:
             f"Equilibrium moisture ({M_eq:.4f}) should be achievable "
             f"within saturation ({M_sat:.4f})"
         )
+
+
+class TestMFDAnalytical:
+    """
+    Analytical tests for Multiple Flow Direction (MFD) algorithm.
+
+    MFD distributes flow to downslope neighbors proportional to slope^p.
+    These tests verify exact flow fractions for geometrically simple terrains.
+
+    Neighbor indexing (clockwise from East):
+        5  6  7
+        4  X  0
+        3  2  1
+
+    Where: 0=E, 1=SE, 2=S, 3=SW, 4=W, 5=NW, 6=N, 7=NE
+    Cardinal distances = 1.0, Diagonal distances = sqrt(2) ≈ 1.414
+    """
+
+    def test_diagonal_plane_flow_fractions(self, grid_factory):
+        """
+        45° diagonal plane: Z = (n-i) + (n-j)
+
+        Elevation decreases both south and east, so downslope neighbors are:
+        - E (dir 0): dz=1, dist=1.0, slope=1.0
+        - SE (dir 1): dz=2, dist=sqrt(2), slope=sqrt(2)
+        - S (dir 2): dz=1, dist=1.0, slope=1.0
+
+        With p=1.5:
+        - slope_E^p = 1.0
+        - slope_SE^p = (sqrt(2))^1.5 = 2^0.75 ≈ 1.6818
+        - slope_S^p = 1.0
+        - sum ≈ 3.6818
+
+        Expected fractions:
+        - E: 1.0/3.6818 ≈ 0.2716
+        - SE: 1.6818/3.6818 ≈ 0.4568
+        - S: 1.0/3.6818 ≈ 0.2716
+        """
+        from src.kernels.flow import FLOW_EXPONENT, compute_flow_directions
+
+        n = 16
+        fields = grid_factory(n=n)
+
+        # Create diagonal plane: Z = (n-i) + (n-j)
+        Z_np = np.zeros((n, n), dtype=np.float32)
+        for i in range(n):
+            for j in range(n):
+                Z_np[i, j] = (n - 1 - i) + (n - 1 - j)
+        fields.Z.from_numpy(Z_np)
+
+        # Set mask (boundary = 0)
+        mask_np = np.ones((n, n), dtype=np.int8)
+        mask_np[0, :] = mask_np[-1, :] = mask_np[:, 0] = mask_np[:, -1] = 0
+        fields.mask.from_numpy(mask_np)
+
+        dx = 1.0
+        p = FLOW_EXPONENT  # 1.5
+
+        compute_flow_directions(fields.Z, fields.mask, fields.flow_frac, dx, p)
+
+        frac = fields.flow_frac.to_numpy()
+
+        # Calculate expected fractions analytically
+        slope_E = 1.0 / 1.0  # dz=1, dist=1
+        slope_SE = 2.0 / math.sqrt(2)  # dz=2, dist=sqrt(2)
+        slope_S = 1.0 / 1.0  # dz=1, dist=1
+
+        slope_E_p = slope_E ** p
+        slope_SE_p = slope_SE ** p
+        slope_S_p = slope_S ** p
+        slope_sum = slope_E_p + slope_SE_p + slope_S_p
+
+        expected_E = slope_E_p / slope_sum
+        expected_SE = slope_SE_p / slope_sum
+        expected_S = slope_S_p / slope_sum
+
+        # Check interior cell (not near boundaries)
+        test_i, test_j = 5, 5
+
+        actual_E = frac[test_i, test_j, 0]
+        actual_SE = frac[test_i, test_j, 1]
+        actual_S = frac[test_i, test_j, 2]
+
+        tol = 0.01
+        assert abs(actual_E - expected_E) < tol, (
+            f"E fraction: expected {expected_E:.4f}, got {actual_E:.4f}"
+        )
+        assert abs(actual_SE - expected_SE) < tol, (
+            f"SE fraction: expected {expected_SE:.4f}, got {actual_SE:.4f}"
+        )
+        assert abs(actual_S - expected_S) < tol, (
+            f"S fraction: expected {expected_S:.4f}, got {actual_S:.4f}"
+        )
+
+        # Other directions should be zero (upslope)
+        for k in [3, 4, 5, 6, 7]:
+            assert frac[test_i, test_j, k] < 0.01, (
+                f"Direction {k} should be ~0, got {frac[test_i, test_j, k]:.4f}"
+            )
+
+    def test_single_cell_water_distribution(self, grid_factory):
+        """
+        Single cell water pulse on diagonal plane should distribute according
+        to flow fractions after one routing step.
+
+        Initial: h=1.0 at center cell only
+        After routing: neighboring cells receive water proportional to flow_frac
+        """
+        from src.kernels.flow import (
+            FLOW_EXPONENT,
+            compute_flow_directions,
+            route_surface_water,
+        )
+
+        n = 16
+        fields = grid_factory(n=n)
+
+        # Diagonal plane
+        Z_np = np.zeros((n, n), dtype=np.float32)
+        for i in range(n):
+            for j in range(n):
+                Z_np[i, j] = (n - 1 - i) + (n - 1 - j)
+        fields.Z.from_numpy(Z_np)
+
+        mask_np = np.ones((n, n), dtype=np.int8)
+        mask_np[0, :] = mask_np[-1, :] = mask_np[:, 0] = mask_np[:, -1] = 0
+        fields.mask.from_numpy(mask_np)
+
+        # Water at single cell
+        center_i, center_j = 7, 7
+        h_initial = 1.0
+        h_np = np.zeros((n, n), dtype=np.float32)
+        h_np[center_i, center_j] = h_initial
+        fields.h.from_numpy(h_np)
+
+        dx = 1.0
+        p = FLOW_EXPONENT
+        compute_flow_directions(fields.Z, fields.mask, fields.flow_frac, dx, p)
+
+        frac = fields.flow_frac.to_numpy()
+
+        # Get expected flow fractions from source cell
+        frac_E = frac[center_i, center_j, 0]
+        frac_SE = frac[center_i, center_j, 1]
+        frac_S = frac[center_i, center_j, 2]
+
+        # Route with long timestep to move all water
+        dt = 10.0  # Long enough to drain the cell
+        manning_n = 0.03
+
+        # Multiple routing steps to ensure water moves
+        for _ in range(5):
+            route_surface_water(
+                fields.h, fields.Z, fields.flow_frac, fields.mask,
+                fields.q_out, dx, dt, manning_n
+            )
+
+        h_final = fields.h.to_numpy()
+
+        # Check that water moved to correct neighbors
+        # Water at E neighbor (center_i, center_j+1)
+        h_E = h_final[center_i, center_j + 1]
+        # Water at SE neighbor (center_i+1, center_j+1)
+        h_SE = h_final[center_i + 1, center_j + 1]
+        # Water at S neighbor (center_i+1, center_j)
+        h_S = h_final[center_i + 1, center_j]
+
+        # Total water that moved (may have cascaded further)
+        total_moved = h_E + h_SE + h_S
+        if total_moved > 0.1:  # If significant water moved
+            # Check relative distribution matches flow fractions
+            ratio_E = h_E / total_moved
+            ratio_SE = h_SE / total_moved
+            ratio_S = h_S / total_moved
+
+            # Relaxed tolerance due to cascading effects
+            tol = 0.2
+            assert abs(ratio_E - frac_E) < tol or h_E < 0.01, (
+                f"E ratio: expected ~{frac_E:.2f}, got {ratio_E:.2f}"
+            )
+
+    def test_uniform_slope_flow_fractions_analytical(self, grid_factory):
+        """
+        On pure south slope Z = f(i), verify MFD flow fractions analytically.
+
+        For a cell where only row varies (Z = slope * (n-1-i)):
+        - S (dir 2): dz=slope, dist=1.0, slope_s = slope
+        - SE (dir 1): dz=slope, dist=sqrt(2), slope_se = slope/sqrt(2)
+        - SW (dir 3): dz=slope, dist=sqrt(2), slope_sw = slope/sqrt(2)
+
+        With p=1.5:
+        - S^p = slope^p
+        - SE^p = (slope/sqrt(2))^p = slope^p / 2^(p/2)
+        - SW^p = slope^p / 2^(p/2)
+
+        Let k = 1/2^(p/2) = 1/2^0.75 ≈ 0.5946
+        Sum = slope^p * (1 + 2k)
+        Fractions: S = 1/(1+2k) ≈ 0.457, SE=SW = k/(1+2k) ≈ 0.271
+        """
+        from src.kernels.flow import FLOW_EXPONENT, compute_flow_directions
+
+        n = 16
+        fields = grid_factory(n=n)
+
+        # Pure south slope: Z = (n-1-i) * 0.1
+        Z_np = np.zeros((n, n), dtype=np.float32)
+        for i in range(n):
+            Z_np[i, :] = (n - 1 - i) * 0.1
+        fields.Z.from_numpy(Z_np)
+
+        mask_np = np.ones((n, n), dtype=np.int8)
+        mask_np[0, :] = mask_np[-1, :] = mask_np[:, 0] = mask_np[:, -1] = 0
+        fields.mask.from_numpy(mask_np)
+
+        dx = 1.0
+        p = FLOW_EXPONENT  # 1.5
+
+        compute_flow_directions(fields.Z, fields.mask, fields.flow_frac, dx, p)
+
+        # Calculate expected fractions analytically
+        # k = 1 / 2^(p/2) = (1/sqrt(2))^p
+        k = (1.0 / math.sqrt(2)) ** p
+        # Sum = 1 + 2k (for S, SE, SW)
+        denom = 1.0 + 2 * k
+
+        expected_S = 1.0 / denom
+        expected_SE = k / denom
+        expected_SW = k / denom
+
+        frac = fields.flow_frac.to_numpy()
+
+        # Check interior cell (not near east/west boundaries where diagonals hit boundary)
+        test_i, test_j = 5, 8
+
+        actual_S = frac[test_i, test_j, 2]
+        actual_SE = frac[test_i, test_j, 1]
+        actual_SW = frac[test_i, test_j, 3]
+
+        tol = 0.01
+        assert abs(actual_S - expected_S) < tol, (
+            f"S fraction: expected {expected_S:.4f}, got {actual_S:.4f}"
+        )
+        assert abs(actual_SE - expected_SE) < tol, (
+            f"SE fraction: expected {expected_SE:.4f}, got {actual_SE:.4f}"
+        )
+        assert abs(actual_SW - expected_SW) < tol, (
+            f"SW fraction: expected {expected_SW:.4f}, got {actual_SW:.4f}"
+        )
+
+        # Verify sum = 1
+        total = actual_S + actual_SE + actual_SW
+        assert abs(total - 1.0) < 0.01, f"Flow fractions sum to {total}, expected 1.0"
+
+    def test_flow_accumulation_total_conservation(self, grid_factory):
+        """
+        Total flow accumulation at outlets should equal total input.
+
+        On a tilted plane, all water eventually reaches the bottom boundary.
+        Sum of accumulation at bottom row should equal total source cells.
+        """
+        from src.kernels.flow import (
+            FLOW_EXPONENT,
+            compute_flow_accumulation,
+            compute_flow_directions,
+        )
+        from src.kernels.utils import fill_field
+
+        n = 32
+        fields = grid_factory(n=n)
+
+        # South slope
+        Z_np = np.zeros((n, n), dtype=np.float32)
+        for i in range(n):
+            Z_np[i, :] = (n - 1 - i) * 0.1
+        fields.Z.from_numpy(Z_np)
+
+        mask_np = np.ones((n, n), dtype=np.int8)
+        mask_np[0, :] = mask_np[-1, :] = mask_np[:, 0] = mask_np[:, -1] = 0
+        fields.mask.from_numpy(mask_np)
+
+        # Uniform source = 1.0
+        fill_field(fields.local_source, 1.0)
+
+        compute_flow_directions(
+            fields.Z, fields.mask, fields.flow_frac, 1.0, FLOW_EXPONENT
+        )
+
+        compute_flow_accumulation(
+            fields.local_source, fields.flow_acc, fields.flow_acc_new,
+            fields.flow_frac, fields.mask,
+            max_iters=200, tol=1e-8,
+        )
+
+        acc = fields.flow_acc.to_numpy()
+        mask = mask_np
+
+        # Total input = number of active cells
+        total_input = np.sum(mask == 1)
+
+        # Total accumulation at bottom row (row n-2)
+        # Due to MFD spreading, not all goes to bottom row, some to corners
+        # But interior columns of bottom row should receive most of the flow
+        bottom_row_acc = np.sum(acc[n - 2, 1:-1])
+
+        # Should be significant fraction of total
+        assert bottom_row_acc > 0.7 * total_input, (
+            f"Bottom row accumulation ({bottom_row_acc:.1f}) should be "
+            f">70% of total input ({total_input})"
+        )
+
+    def test_flow_conservation_routing_step(self, grid_factory):
+        """
+        Water leaving a cell must equal water entering downslope cells.
+
+        For a single routing step:
+        - Cell (i,j) loses: q_out[i,j] * dt
+        - Neighbor k gains: flow_frac[i,j,k] * q_out[i,j] * dt
+
+        Sum of gains = loss (mass conservation per cell).
+        """
+        from src.kernels.flow import (
+            FLOW_EXPONENT,
+            compute_flow_directions,
+            compute_outflow,
+        )
+
+        n = 16
+        fields = grid_factory(n=n)
+
+        # Diagonal plane
+        Z_np = np.zeros((n, n), dtype=np.float32)
+        for i in range(n):
+            for j in range(n):
+                Z_np[i, j] = (n - 1 - i) + (n - 1 - j)
+        fields.Z.from_numpy(Z_np)
+
+        mask_np = np.ones((n, n), dtype=np.int8)
+        mask_np[0, :] = mask_np[-1, :] = mask_np[:, 0] = mask_np[:, -1] = 0
+        fields.mask.from_numpy(mask_np)
+
+        # Uniform water
+        from src.kernels.utils import fill_field
+        fill_field(fields.h, 0.1)
+
+        dx = 1.0
+        dt = 0.01
+        manning_n = 0.03
+
+        compute_flow_directions(
+            fields.Z, fields.mask, fields.flow_frac, dx, FLOW_EXPONENT
+        )
+        compute_outflow(
+            fields.h, fields.Z, fields.flow_frac, fields.mask,
+            fields.q_out, dx, dt, manning_n
+        )
+
+        q_out = fields.q_out.to_numpy()
+        frac = fields.flow_frac.to_numpy()
+
+        # For each interior cell, verify outflow splits correctly
+        test_i, test_j = 5, 5
+        total_out = q_out[test_i, test_j] * dt
+
+        # Compute expected distribution
+        expected_distribution = []
+        for k in range(8):
+            expected_distribution.append(frac[test_i, test_j, k] * q_out[test_i, test_j] * dt)
+
+        # Sum should equal total outflow
+        sum_distribution = sum(expected_distribution)
+        assert abs(sum_distribution - total_out) < 1e-8, (
+            f"Flow distribution doesn't sum to total: {sum_distribution:.6f} vs {total_out:.6f}"
+        )
+
+    def test_symmetric_flow_on_symmetric_terrain(self, grid_factory, valley_terrain):
+        """
+        On V-shaped valley, cells equidistant from center should have
+        mirror-symmetric flow fractions.
+
+        Left of center: flow toward E/SE/NE
+        Right of center: flow toward W/SW/NW
+        """
+        from src.kernels.flow import FLOW_EXPONENT, compute_flow_directions
+
+        n = 32
+        fields = grid_factory(n=n)
+        valley_terrain(fields, slope=0.01, valley_depth=0.5)
+
+        compute_flow_directions(
+            fields.Z, fields.mask, fields.flow_frac, 1.0, FLOW_EXPONENT
+        )
+
+        frac = fields.flow_frac.to_numpy()
+        center = n // 2
+
+        # Check symmetry at fixed row
+        test_row = 10
+        offset = 3
+
+        # Cell left of center
+        left_j = center - offset
+        # Cell right of center
+        right_j = center + offset
+
+        # Left cell flows eastward (dirs 0, 1, 7 = E, SE, NE)
+        left_east = frac[test_row, left_j, 0] + frac[test_row, left_j, 1] + frac[test_row, left_j, 7]
+
+        # Right cell flows westward (dirs 3, 4, 5 = SW, W, NW)
+        right_west = frac[test_row, right_j, 3] + frac[test_row, right_j, 4] + frac[test_row, right_j, 5]
+
+        # Should be approximately equal by symmetry
+        assert abs(left_east - right_west) < 0.2, (
+            f"Flow symmetry violated: left_east={left_east:.3f}, right_west={right_west:.3f}"
+        )
