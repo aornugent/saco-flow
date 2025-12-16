@@ -17,7 +17,7 @@ The simulation is memory-bandwidth bound. Every optimization targets reducing gl
 | Sub-phase | Focus | Status |
 |-----------|-------|--------|
 | 6.0a | Core infrastructure (geometry, dtypes) | ✅ Complete |
-| 6.0b | Field management (containers, double-buffering) | ⬜ Pending |
+| 6.0b | Field management (containers, double-buffering) | ✅ Complete |
 | 6.0c | Parameter system (validation, injection) | ⬜ Pending |
 | 6.0d | Kernel protocols (interfaces, registry) | ⬜ Pending |
 | 6.0e | Runner refactoring (orchestration) | ⬜ Pending |
@@ -56,19 +56,32 @@ Centralized geometry and type definitions.
 
 ---
 
-## 6.0b: Field Management
+## 6.0b: Field Management ✅
 
 Typed field containers with declarative specs.
 
-| Task | File |
-|------|------|
-| FieldSpec dataclass (name, dtype, shape, role) | `src/fields/base.py` |
-| FieldContainer class (register, allocate, swap) | `src/fields/base.py` |
-| State field factory (h, M, P) | `src/fields/state.py` |
-| Static field factory (Z, mask, flow_frac) | `src/fields/static.py` |
-| Double-buffer swap tests | `tests/test_fields.py` |
+| Task | File | Status |
+|------|------|--------|
+| FieldSpec dataclass (name, dtype, shape, role) | `src/fields/base.py` | ✅ |
+| FieldContainer class (register, allocate, swap) | `src/fields/base.py` | ✅ |
+| FieldRole enum (STATE, STATIC, DERIVED, SCRATCH) | `src/fields/base.py` | ✅ |
+| State field factory (h, m, p) | `src/fields/state.py` | ✅ |
+| Static field factory (z, mask, flow_frac) | `src/fields/static.py` | ✅ |
+| Scratch/derived field factory | `src/fields/scratch.py` | ✅ |
+| Convenience wrappers (StateFields, StaticFields, ScratchFields) | `src/fields/*.py` | ✅ |
+| Double-buffer swap tests | `tests/test_fields.py` | ✅ |
 
-**Exit:** Field containers working, can coexist with SimpleNamespace.
+**Exit:** ✅ Field containers working, can coexist with SimpleNamespace.
+
+**Completed:** 2025-12-16
+
+**Summary:**
+- `src/fields/base.py`: FieldSpec frozen dataclass with validation (name, dtype, role, double_buffer, extra_dims), FieldRole enum, FieldContainer class with register/allocate/swap/get operations, memory tracking
+- `src/fields/state.py`: StateFields wrapper for h/m/p with swap operations, create_state_specs factory
+- `src/fields/static.py`: StaticFields wrapper with tilted plane and DEM initialization, create_static_specs factory
+- `src/fields/scratch.py`: ScratchFields wrapper for temporary/derived fields, create_scratch_specs and create_derived_specs factories
+- `tests/test_fields.py`: 58 unit tests covering specs, containers, double-buffering, swap operations, convenience wrappers, factory functions, and memory tracking
+- All 227 tests pass (no regressions from 169 existing tests + 58 new tests)
 
 ---
 
