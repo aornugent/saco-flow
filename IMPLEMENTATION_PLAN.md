@@ -18,7 +18,7 @@ The simulation is memory-bandwidth bound. Every optimization targets reducing gl
 |-----------|-------|--------|
 | 6.0a | Core infrastructure (geometry, dtypes) | ✅ Complete |
 | 6.0b | Field management (containers, double-buffering) | ✅ Complete |
-| 6.0c | Parameter system (validation, injection) | ⬜ Pending |
+| 6.0c | Parameter system (validation, injection) | ✅ Complete |
 | 6.0d | Kernel protocols (interfaces, registry) | ⬜ Pending |
 | 6.0e | Runner refactoring (orchestration) | ⬜ Pending |
 | 6.1 | Memory access patterns | ⬜ Pending |
@@ -85,18 +85,27 @@ Typed field containers with declarative specs.
 
 ---
 
-## 6.0c: Parameter System
+## 6.0c: Parameter System ✅
 
 Validated, immutable parameter containers.
 
-| Task | File |
-|------|------|
-| Nested param dataclasses with validation | `src/params/schema.py` |
-| YAML loader with from_yaml() | `src/params/loader.py` |
-| TaichiParams injection class | `src/params/taichi_params.py` |
-| Validation tests | `tests/test_params.py` |
+| Task | File | Status |
+|------|------|--------|
+| Nested param dataclasses with validation | `src/params/schema.py` | ✅ |
+| YAML loader with from_yaml() | `src/params/loader.py` | ✅ |
+| TaichiParams injection class | `src/params/taichi_params.py` | ✅ |
+| Validation tests | `tests/test_params.py` | ✅ |
 
-**Exit:** Parameters loadable from YAML, validation catches errors at init.
+**Exit:** ✅ Parameters loadable from YAML, validation catches errors at init.
+
+**Completed:** 2025-12-16
+
+**Summary:**
+- `src/params/schema.py`: 8 frozen dataclasses with `__post_init__` validation (GridParams, RainfallParams, InfiltrationParams, SoilParams, VegetationParams, RoutingParams, DrainageParams, TimestepParams), SimulationConfig aggregator with `to_dict`/`from_dict`/`with_updates` methods, convenience property accessors for backward compatibility
+- `src/params/loader.py`: YAML loading (`load_config`), saving (`save_config`), and merge utilities (`load_config_with_overrides`, `merge_configs`)
+- `src/params/taichi_params.py`: TaichiParams class bridging Python dataclasses to Taichi scalar fields for kernel access without recompilation
+- `tests/test_params.py`: 51 unit tests covering validation, YAML roundtrip, Taichi injection, and kernel readability
+- All 278 tests pass (no regressions from 227 existing tests + 51 new tests)
 
 ---
 
