@@ -240,23 +240,301 @@ Phased development from surface water routing to end-to-end simulation.
 
 ---
 
-## Phase 6: Optimization
+## Phase 6: GPU Optimization
 
-**Goal:** Target performance on H100/B200.
+**Goal:** Maximize throughput on B200 (sm_100), with H100 (sm_90) as fallback. Target: 10k×10k grid at ≥1 simulated year per wall-clock minute.
 
-**Read:** `ecohydro_spec.md:609-714` (Performance Optimization)
+**Read:** `ecohydro_spec.md:609-714` (Performance Optimization), `docs/gpu_optimization.md` (new)
 
-### Tasks
+**Design Philosophy:** The simulation is memory-bandwidth bound. Every optimization targets reducing global memory traffic while maintaining numerical equivalence with Phase 5 results (within tolerance). We use pure Taichi with advanced features; custom CUDA kernels are a future extension.
 
-- Profile with Taichi profiler
-- Kernel fusion for soil update
-- Verify coalesced memory access
-- Benchmark at 1k, 5k, 10k grids
+---
 
-### Exit Criteria
+### Phase 6.0: Architecture Refactoring
 
-- >50% theoretical memory bandwidth
-- 10k×10k at ~1 simulated year/minute
+**Goal:** Clean, modular foundation for optimization work.
+
+Before optimizing, refactor for clarity and maintainability. This enables isolated benchmarking and simplifies kernel fusion.
+
+| Task | File | Description |
+|------|------|-------------|
+| Unified field container | `src/fields.py` | Replace `SimpleNamespace` with typed `FieldSet` class |
+| Parameter dataclass consolidation | `src/config.py` | Single `SimulationConfig` with nested groups |
+| Kernel registry pattern | `src/kernels/__init__.py` | Enable swapping naive/optimized kernel implementations |
+| Pin Taichi version | `requirements.txt` | Lock to `taichi>=1.7.0,<1.8.0` for `ti.block_local` support |
+
+**Exit Criteria:**
+- [ ] All 140 tests pass with refactored code
+- [ ] Kernels can be selected via config (naive vs optimized)
+- [ ] Clean separation between field allocation and kernel logic
+
+---
+
+### Phase 6.1: Memory Access Optimization
+
+**Goal:** Ensure optimal memory access patterns before fusion.
+
+Modern GPUs (H100/B200) achieve peak bandwidth only with coalesced, aligned access. Verify and fix access patterns.
+
+| Task | File | Description |
+|------|------|-------------|
+| Audit loop order in all kernels | `src/kernels/*.py` | Ensure `j` (column) is innermost for row-major layout |
+| Add `ti.block_dim()` hints | `src/kernels/*.py` | Explicit thread block sizing (256 or 512 threads) |
+| Verify SoA layout | `src/fields.py` | Confirm no AoS patterns crept in |
+| Eliminate redundant mask checks | `src/kernels/*.py` | Restructure loops to skip boundary cells efficiently |
+
+**Memory Access Pattern:**
+```python
+# CORRECT: j varies fastest (coalesced)
+for i, j in ti.ndrange((1, n-1), (1, n-1)):
+
+# INCORRECT: i varies fastest (strided)
+for j, i in ti.ndrange((1, n-1), (1, n-1)):
+```
+
+**Exit Criteria:**
+- [ ] All kernels use column-major innermost iteration
+- [ ] Block dimensions specified for compute-heavy kernels
+- [ ] Tests still pass (numerical equivalence)
+
+---
+
+### Phase 6.2: Kernel Fusion — Soil Moisture
+
+**Goal:** Fuse ET + leakage + diffusion into single kernel pass.
+
+Currently `soil_moisture_step` calls three separate kernels plus a `copy_field`. This requires 4 global memory round-trips. Fusion reduces to 1.
+
+| Task | File | Description |
+|------|------|-------------|
+| Fused soil kernel | `src/kernels/soil_fused.py` | Single kernel: read M,P → compute ET,leakage,diffusion → write M_new |
+| Shared memory caching | `src/kernels/soil_fused.py` | Use `ti.block_local(M)` for diffusion stencil |
+| Mass balance tracking | `src/kernels/soil_fused.py` | Atomic accumulation of ET/leakage totals |
+| Regression tests | `tests/test_soil_fused.py` | Verify equivalence with naive implementation |
+
+**Fused Kernel Structure:**
+```python
+@ti.kernel
+def soil_update_fused(M: ti.template(), M_new: ti.template(), P: ti.template(),
+                      mask: ti.template(), params: ti.template(), dt: DTYPE) -> ti.types.vector(2, DTYPE):
+    """Fused: ET + leakage + diffusion. Returns (total_et, total_leakage)."""
+    ti.block_local(M)  # Cache M in shared memory for Laplacian
+
+    totals = ti.Vector([0.0, 0.0])
+    for i, j in ti.ndrange((1, n-1), (1, n-1)):
+        if mask[i, j] == 0:
+            continue
+        # Load once
+        M_c, P_c = M[i, j], P[i, j]
+        # ET
+        et = compute_et(M_c, P_c, params, dt)
+        # Leakage
+        leak = compute_leakage(M_c, params, dt)
+        # Diffusion Laplacian (reads from block_local cache)
+        laplacian = M[i-1,j] + M[i+1,j] + M[i,j-1] + M[i,j+1] - 4*M_c
+        diff = params.D_M * laplacian / (params.dx * params.dx) * dt
+        # Single write
+        M_new[i, j] = clamp(M_c - et - leak + diff, 0, params.M_sat)
+        ti.atomic_add(totals[0], et)
+        ti.atomic_add(totals[1], leak)
+    return totals
+```
+
+**Expected Speedup:** 2-3× for soil update (reduced memory traffic)
+
+**Exit Criteria:**
+- [ ] Fused kernel produces results within 1e-5 of naive implementation
+- [ ] Mass conservation maintained
+- [ ] Benchmark shows measurable speedup on GPU
+
+---
+
+### Phase 6.3: Kernel Fusion — Vegetation
+
+**Goal:** Fuse growth + mortality + diffusion into single kernel pass.
+
+Same pattern as soil moisture, but simpler (no cross-field dependencies within timestep).
+
+| Task | File | Description |
+|------|------|-------------|
+| Fused vegetation kernel | `src/kernels/vegetation_fused.py` | Single kernel for all vegetation dynamics |
+| Shared memory for P | `src/kernels/vegetation_fused.py` | Cache P for diffusion stencil |
+| Regression tests | `tests/test_vegetation_fused.py` | Verify equivalence |
+
+**Exit Criteria:**
+- [ ] Fused kernel matches naive to tolerance
+- [ ] Benchmark shows measurable speedup
+
+---
+
+### Phase 6.4: Kernel Fusion — Surface Routing
+
+**Goal:** Optimize the CFL-limited surface water routing loop.
+
+Surface routing is the most time-critical component during rainfall events. Currently uses two-pass scheme (compute_outflow → apply_fluxes). This is correct but requires careful optimization.
+
+| Task | File | Description |
+|------|------|-------------|
+| Fused outflow+apply kernel | `src/kernels/flow_fused.py` | Single pass where safe (no race conditions) |
+| CFL computation optimization | `src/kernels/flow_fused.py` | Compute max velocity inline during routing |
+| Adaptive event detection | `src/simulation.py` | Skip routing entirely when h < threshold everywhere |
+| Early termination | `src/simulation.py` | Exit subcycle loop faster when drained |
+
+**Constraint:** Two-pass may still be necessary for mass conservation. Analyze carefully before fusing.
+
+**Exit Criteria:**
+- [ ] Routing still conserves mass
+- [ ] Reduced kernel launch overhead
+- [ ] Faster drainage detection
+
+---
+
+### Phase 6.5: Temporal Blocking for Diffusion
+
+**Goal:** Batch multiple diffusion sub-steps in shared memory.
+
+For pure diffusion (stable, no cross-field dependencies), we can apply N steps in shared memory before writing to global. Reduces bandwidth by factor of ~N.
+
+| Task | File | Description |
+|------|------|-------------|
+| Temporal blocking kernel | `src/kernels/diffusion_temporal.py` | Multi-step diffusion in shared memory |
+| Stability analysis | `docs/gpu_optimization.md` | Document step count limits for stability |
+| Integration with fused kernels | `src/kernels/soil_fused.py` | Apply temporal blocking within fused kernel |
+
+**Temporal Blocking Structure:**
+```python
+@ti.kernel
+def diffusion_temporal_block(M: ti.template(), D: DTYPE, dx: DTYPE, dt: DTYPE, steps: int):
+    """Apply `steps` diffusion iterations in shared memory."""
+    ti.block_local(M)
+
+    for i, j in ti.ndrange((BLOCK, N-BLOCK), (BLOCK, N-BLOCK)):
+        local = M[i, j]
+        for _ in range(steps):
+            laplacian = # from shared memory neighbors
+            local += D * laplacian / (dx*dx) * dt
+            ti.simt.block.sync()  # Synchronize block
+        M[i, j] = local
+```
+
+**Limitation:** Only applicable when diffusion is the sole operation. May not combine well with fused ET/leakage.
+
+**Exit Criteria:**
+- [ ] Temporal blocking works for isolated diffusion
+- [ ] Document when it's beneficial vs overhead-dominated
+
+---
+
+### Phase 6.6: Large Grid Support
+
+**Goal:** Efficient execution at 10k×10k and documentation for larger scales.
+
+| Task | File | Description |
+|------|------|-------------|
+| Memory layout for 10k×10k | `src/fields.py` | Verify allocation succeeds on 80GB HBM |
+| Tiled execution | `src/kernels/tiled.py` | Optional tiling for grids exceeding GPU memory |
+| Scaling documentation | `docs/gpu_optimization.md` | Performance expectations vs grid size |
+
+**Memory Budget at 10k×10k (10⁸ cells):**
+| Fields | Bytes/cell | Total |
+|--------|------------|-------|
+| Primary (h, M, P) | 12 | 1.2 GB |
+| Buffers (h_new, M_new, P_new) | 12 | 1.2 GB |
+| Flow fractions | 32 | 3.2 GB |
+| Static (Z, mask) | 5 | 0.5 GB |
+| Routing (q_out, flow_acc, etc.) | 16 | 1.6 GB |
+| **Total** | | **~7.7 GB** |
+
+This is <10% of H100's 80GB, <5% of B200's 192GB. Plenty of headroom.
+
+**Scaling to Larger Grids:**
+- 20k×20k (4×10⁸ cells): ~31 GB — fits H100
+- 50k×50k (2.5×10⁹ cells): ~193 GB — requires B200 or tiling
+- For domains exceeding GPU memory: implement overlapping tile execution with halo exchange
+
+**Exit Criteria:**
+- [ ] 10k×10k runs without memory errors
+- [ ] Document memory usage per grid size
+- [ ] (Optional) Prototype tiled execution for future
+
+---
+
+### Phase 6.7: Benchmarking Infrastructure
+
+**Goal:** Measure and track performance systematically.
+
+| Task | File | Description |
+|------|------|-------------|
+| Benchmark harness | `benchmarks/benchmark.py` | Standardized timing for kernel and full simulation |
+| Grid size sweep | `benchmarks/benchmark.py` | Run at 1k, 5k, 10k grids |
+| Throughput metrics | `benchmarks/benchmark.py` | Cells/second, years/minute, GB/s achieved |
+| Comparison table | `docs/gpu_optimization.md` | Naive vs optimized performance |
+
+**Target Metrics:**
+- **Throughput:** 10k×10k at ≥1 simulated year per wall-clock minute
+- **Bandwidth efficiency:** >50% of theoretical peak (H100: ~1.7 TB/s, B200: ~4 TB/s)
+- **Kernel overhead:** <5% of time in kernel launch/sync
+
+**Exit Criteria:**
+- [ ] Benchmark script runs end-to-end
+- [ ] Results documented in `docs/gpu_optimization.md`
+- [ ] Performance target met or gap quantified
+
+---
+
+### Phase 6.8: Profiling and Analysis
+
+**Goal:** Identify remaining bottlenecks using Taichi profiler.
+
+| Task | File | Description |
+|------|------|-------------|
+| Enable Taichi profiler | `src/config.py` | Add `ti.init(kernel_profiler=True)` option |
+| Profile report generation | `benchmarks/profile.py` | Generate per-kernel timing breakdown |
+| Hotspot analysis | `docs/gpu_optimization.md` | Document findings and remaining opportunities |
+| Occupancy analysis | `docs/gpu_optimization.md` | Check register pressure, shared memory usage |
+
+**Profiling Protocol:**
+1. Run 10k×10k simulation for 1 simulated year
+2. Collect kernel timing breakdown
+3. Identify top 3 kernels by time
+4. Analyze memory vs compute bound nature
+5. Document findings
+
+**Exit Criteria:**
+- [ ] Profiler integration working
+- [ ] Per-kernel timing documented
+- [ ] Bottlenecks identified for future work
+
+---
+
+### Phase 6 Summary
+
+| Sub-phase | Focus | Key Deliverable |
+|-----------|-------|-----------------|
+| 6.0 | Refactoring | Clean field/config architecture |
+| 6.1 | Memory access | Coalesced, aligned access patterns |
+| 6.2 | Soil fusion | Single-pass soil moisture update |
+| 6.3 | Vegetation fusion | Single-pass vegetation update |
+| 6.4 | Routing optimization | Faster surface water routing |
+| 6.5 | Temporal blocking | Multi-step diffusion in shared memory |
+| 6.6 | Large grids | 10k×10k support, scaling docs |
+| 6.7 | Benchmarking | Performance measurement infrastructure |
+| 6.8 | Profiling | Taichi profiler integration, analysis |
+
+### Exit Criteria (Phase 6 Complete)
+
+- [ ] All 140+ tests pass
+- [ ] Optimized kernels match naive results within tolerance
+- [ ] 10k×10k grid runs at ≥1 simulated year/minute on H100
+- [ ] >50% theoretical memory bandwidth achieved
+- [ ] Performance documented with benchmark results
+- [ ] Profiler analysis identifies remaining opportunities
+
+### Dependencies
+
+- **Taichi:** `>=1.7.0,<1.8.0` (for `ti.block_local`, stable GPU backend)
+- **Hardware:** H100 (sm_90) or B200 (sm_100) for GPU testing
+- **CPU fallback:** Maintained for development but not optimized
 
 ---
 
@@ -275,7 +553,7 @@ Per `ecohydro_spec.md` Section 14:
 
 **Completed:** Phase 0 (Project Setup), Phase 1 (Surface Water Routing), Phase 2 (Infiltration & Soil Moisture), Phase 3 (Vegetation Dynamics), Phase 4 (Integration), Phase 5 (Validation)
 
-**Active Phase:** None (Ready for Phase 6)
+**Active Phase:** Phase 6 (GPU Optimization)
 
 **Test Summary:** 140 tests passing
 - Setup/Fixtures: 22 tests
@@ -287,4 +565,4 @@ Per `ecohydro_spec.md` Section 14:
 - Simulation: 22 tests
 - Validation: 20 tests
 
-**Next Milestone:** Performance optimization (Phase 6) or pathology/edge case testing
+**Next Milestone:** Phase 6.0 (Architecture Refactoring)
