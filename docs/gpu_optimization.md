@@ -174,6 +174,15 @@ Key metrics:
 - **Occupancy:** Check register/shared memory pressure
 - **Memory throughput:** Compare to theoretical peak
 
+## GPU Gotchas
+
+- **Memory layout:** Taichi uses row-major; iterate `(i, j)` with j innermost
+- **Block size:** Use `ti.block_dim(256)` or `ti.block_dim(512)` for compute kernels
+- **Shared memory limits:** 48KB per block default on H100/B200
+- **Register pressure:** Fused kernels use more registers; watch occupancy
+- **Atomic contention:** Global atomics are slow; use reduction patterns
+- **Kernel launch overhead:** ~10μs per launch; fuse small kernels
+
 ## Optimization Checklist
 
 - [ ] Loop order verified (j innermost for row-major)
