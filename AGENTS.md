@@ -25,6 +25,7 @@ Read the docs relevant to your task:
 | Memory layout | `docs/data_structures.md` |
 | Testing/debugging | `docs/mass_conservation.md` |
 | GPU optimization | `docs/gpu_optimization.md` |
+| Architecture/refactoring | `docs/ARCHITECTURE.md` |
 | Current priorities | `IMPLEMENTATION_PLAN.md` |
 
 ## Conventions
