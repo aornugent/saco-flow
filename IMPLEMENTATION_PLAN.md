@@ -186,22 +186,57 @@ Phased development from surface water routing to end-to-end simulation.
 
 ### Tasks
 
-- Long simulation (decades) on tilted plane
-- Visual inspection for pattern emergence
-- FFT analysis of vegetation field (characteristic wavelength)
-- Parameter sensitivity: vary infiltration feedback, rainfall frequency
+| Task | File | Status |
+|------|------|--------|
+| Long-run numerical stability | `tests/test_validation.py` | ✓ |
+| Pattern emergence verification | `tests/test_validation.py` | ✓ |
+| FFT analysis (characteristic wavelength) | `tests/test_validation.py` | ✓ |
+| Parameter sensitivity tests | `tests/test_validation.py` | ✓ |
+| Turing instability mechanism validation | `tests/test_validation.py` | ✓ |
+| Slope effects on water redistribution | `tests/test_validation.py` | ✓ |
+| Equilibrium state tests | `tests/test_validation.py` | ✓ |
 
-### Tests
+### Tests (20 passing)
 
-- `test_long_run_stability` — no numerical drift over decades
-- `test_pattern_emerges` — vegetation not uniform after spinup
-- `test_pattern_wavelength_reasonable` — matches expected spatial scale
+**Long-Run Stability:**
+- [x] `test_no_nan_or_inf_after_one_year` — no numerical failures
+- [x] `test_fields_within_physical_bounds_after_one_year` — h, M, P bounded
+- [x] `test_mass_conservation_over_multiple_years` — mass balance verified
+- [x] `test_no_numerical_drift_five_years` — no unbounded growth/decay
+
+**Pattern Emergence:**
+- [x] `test_vegetation_heterogeneity_increases` — variance grows from uniform start
+- [x] `test_pattern_not_uniform_after_spinup` — CV > 10% after spinup
+- [x] `test_spatial_structure_emerges` — positive autocorrelation (coherent patterns)
+
+**Pattern Wavelength:**
+- [x] `test_fft_detects_dominant_scale` — FFT shows peak at non-zero frequency
+- [x] `test_wavelength_physically_reasonable` — wavelength in 1-200m range
+
+**Turing Mechanism:**
+- [x] `test_vegetation_captures_water_locally` — positive local feedback verified
+- [x] `test_vegetation_reduces_runoff_to_neighbors` — negative nonlocal feedback
+- [x] `test_instability_amplifies_perturbations` — perturbations grow >5x
+
+**Parameter Sensitivity:**
+- [x] `test_higher_rainfall_increases_vegetation` — more rain → more veg
+- [x] `test_higher_mortality_decreases_vegetation` — more death → less veg
+- [x] `test_bare_soil_factor_affects_pattern_contrast` — W_0 affects patterns
+
+**Slope Effects:**
+- [x] `test_water_accumulates_downslope` — downslope wetter
+- [x] `test_steeper_slope_faster_drainage` — steep slope → smaller CFL dt
+
+**Equilibrium States:**
+- [x] `test_system_approaches_steady_state` — changes decrease over time
+- [x] `test_vegetation_persists_with_rainfall` — no extinction
+- [x] `test_growth_mortality_balance_reached` — net change < 50%/year
 
 ### Exit Criteria
 
-- Patterns emerge from uniform initial conditions
-- Spatial wavelength in physically reasonable range
-- System stable over long simulations
+- [x] Patterns emerge from uniform initial conditions
+- [x] Spatial wavelength in physically reasonable range
+- [x] System stable over long simulations
 
 ---
 
@@ -238,8 +273,18 @@ Per `ecohydro_spec.md` Section 14:
 
 ## Current Status
 
-**Completed:** Phase 0 (Project Setup), Phase 1 (Surface Water Routing), Phase 2 (Infiltration & Soil Moisture)
+**Completed:** Phase 0 (Project Setup), Phase 1 (Surface Water Routing), Phase 2 (Infiltration & Soil Moisture), Phase 3 (Vegetation Dynamics), Phase 4 (Integration), Phase 5 (Validation)
 
-**Active Phase:** 3 (Vegetation Dynamics)
+**Active Phase:** None (Ready for Phase 6)
 
-**Next Milestone:** Monod growth, mortality, and seed dispersal
+**Test Summary:** 140 tests passing
+- Setup/Fixtures: 22 tests
+- Flow/Routing: 13 tests
+- Infiltration: 7 tests
+- Soil Moisture: 13 tests
+- Vegetation: 15 tests
+- Kernel Dynamics: 28 tests
+- Simulation: 22 tests
+- Validation: 20 tests
+
+**Next Milestone:** Performance optimization (Phase 6) or pathology/edge case testing
