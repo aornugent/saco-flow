@@ -1,12 +1,12 @@
 # AGENTS.md
 
-GPU-accelerated ecohydrological simulation using Taichi (H100/B200).
+GPU-accelerated ecohydrological simulation using Taichi (B200/H100).
 
 ## Principles
 
-1. **Simplicity first** - Naive implementation before optimization
-2. **Correctness before speed** - Every kernel needs a mass conservation test
-3. **Explicit over implicit** - Physical variable names, units in comments
+1. **Simplicity first** — Naive implementation before optimization
+2. **Correctness before speed** — Every kernel needs a mass conservation test
+3. **Explicit over implicit** — Physical variable names, units in comments
 
 ## Before Starting Work
 
@@ -24,6 +24,7 @@ Read the docs relevant to your task:
 | Timestep strategy | `docs/timesteps.md` |
 | Memory layout | `docs/data_structures.md` |
 | Testing/debugging | `docs/mass_conservation.md` |
+| GPU optimization | `docs/gpu_optimization.md` |
 | Current priorities | `IMPLEMENTATION_PLAN.md` |
 
 ## Conventions
@@ -32,6 +33,7 @@ Read the docs relevant to your task:
 - **Kernels:** `snake_case` verb phrases, docstring with equation
 - **Constants:** `UPPER_SNAKE_CASE`
 - **Tests:** `test_<what>_<expected>`
+- **Optimized kernels:** suffix `_fused`, keep naive version for regression testing
 
 ## Kernel Pattern
 
