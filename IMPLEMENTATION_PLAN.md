@@ -14,37 +14,45 @@ The simulation is memory-bandwidth bound. Every optimization targets reducing gl
 
 **Critical**: Complete architecture groundwork (6.0a-6.0e) before kernel fusion (6.2+).
 
-| Sub-phase | Focus |
-|-----------|-------|
-| 6.0a | Core infrastructure (geometry, dtypes) |
-| 6.0b | Field management (containers, double-buffering) |
-| 6.0c | Parameter system (validation, injection) |
-| 6.0d | Kernel protocols (interfaces, registry) |
-| 6.0e | Runner refactoring (orchestration) |
-| 6.1 | Memory access patterns |
-| 6.2 | Kernel fusion — soil |
-| 6.3 | Kernel fusion — vegetation |
-| 6.4 | Kernel fusion — routing |
-| 6.5 | Temporal blocking |
-| 6.6 | 10k×10k validation |
-| 6.7 | Benchmarking |
-| 6.8 | Profiling |
+| Sub-phase | Focus | Status |
+|-----------|-------|--------|
+| 6.0a | Core infrastructure (geometry, dtypes) | ✅ Complete |
+| 6.0b | Field management (containers, double-buffering) | ⬜ Pending |
+| 6.0c | Parameter system (validation, injection) | ⬜ Pending |
+| 6.0d | Kernel protocols (interfaces, registry) | ⬜ Pending |
+| 6.0e | Runner refactoring (orchestration) | ⬜ Pending |
+| 6.1 | Memory access patterns | ⬜ Pending |
+| 6.2 | Kernel fusion — soil | ⬜ Pending |
+| 6.3 | Kernel fusion — vegetation | ⬜ Pending |
+| 6.4 | Kernel fusion — routing | ⬜ Pending |
+| 6.5 | Temporal blocking | ⬜ Pending |
+| 6.6 | 10k×10k validation | ⬜ Pending |
+| 6.7 | Benchmarking | ⬜ Pending |
+| 6.8 | Profiling | ⬜ Pending |
 
 ---
 
-## 6.0a: Core Infrastructure
+## 6.0a: Core Infrastructure ✅
 
 Centralized geometry and type definitions.
 
-| Task | File |
-|------|------|
-| Move DTYPE to dedicated module | `src/core/dtypes.py` |
-| GridGeometry dataclass (nx, ny, dx) | `src/core/geometry.py` |
-| Neighbor vectors (DI, DJ, DIST) | `src/core/geometry.py` |
-| Neighbor helper functions (@ti.func) | `src/core/geometry.py` |
-| Unit tests for geometry | `tests/test_geometry.py` |
+| Task | File | Status |
+|------|------|--------|
+| Move DTYPE to dedicated module | `src/core/dtypes.py` | ✅ |
+| GridGeometry dataclass (nx, ny, dx) | `src/core/geometry.py` | ✅ |
+| Neighbor vectors (DI, DJ, DIST) | `src/core/geometry.py` | ✅ |
+| Neighbor helper functions (@ti.func) | `src/core/geometry.py` | ✅ |
+| Unit tests for geometry | `tests/test_geometry.py` | ✅ |
 
-**Exit:** Geometry module complete with tests, existing code unchanged.
+**Exit:** ✅ Geometry module complete with tests, existing code unchanged.
+
+**Completed:** 2024-12-16
+
+**Summary:**
+- `src/core/dtypes.py`: DTYPE (ti.f32) definition
+- `src/core/geometry.py`: GridGeometry frozen dataclass with validation, 8-connectivity neighbor vectors (NEIGHBOR_DI, NEIGHBOR_DJ, NEIGHBOR_DIST), helper functions (is_interior, get_neighbor, get_neighbor_distance)
+- `tests/test_geometry.py`: 29 unit tests covering dataclass, vectors, and Taichi functions
+- All 140 existing tests pass (no regressions)
 
 ---
 
