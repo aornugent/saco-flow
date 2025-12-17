@@ -87,7 +87,7 @@ class SimulationParams:
 
 ### 3. Fields (`fields.py`)
 
-All Taichi fields declared in one place. Include a `swap_buffers()` helper.
+All Taichi fields declared in one place. Include a `copy_buffer()` helper for stencil operations.
 
 ```python
 import taichi as ti
@@ -111,20 +111,54 @@ def allocate(nx: int, ny: int):
     ti.root.dense(ti.ij, (nx, ny)).place(Z, mask)
     ti.root.dense(ti.ijk, (nx, ny, 8)).place(flow_frac)
 
-def swap_buffers():
-    """Swap state buffers after stencil operations."""
-    # Copy new -> current
-    _copy_field(h_new, h)
-    _copy_field(M_new, M)
-    _copy_field(P_new, P)
-
 @ti.kernel
-def _copy_field(src: ti.template(), dst: ti.template()):
+def copy_field(src: ti.template(), dst: ti.template()):
+    """Copy src to dst. Use after stencil operations."""
     for i, j in src:
         dst[i, j] = src[i, j]
 ```
 
-**Why a swap helper**: Easy to forget which buffer is "current". A thin wrapper prevents bugs.
+#### Buffer Strategy: Copy-Back vs Pointer Swap
+
+**Current approach**: Copy `M_new → M` after stencil operations.
+
+```python
+diffusion_step(M, M_new, ...)  # reads M, writes M_new
+copy_field(M_new, M)           # O(N²) copy
+```
+
+**Trade-off**: This adds ~50% memory bandwidth overhead per stencil step. True pointer swapping would require tracking "which buffer is current" and passing it to every kernel:
+
+```python
+# Pointer swap alternative (more complex)
+current = 0  # index tracking
+buffers = [(M, M_new), (M_new, M)]
+src, dst = buffers[current]
+diffusion_step(src, dst, ...)
+current = 1 - current  # flip index, no copy
+```
+
+**Recommendation**: Keep copy-back for simplicity. For grids < 1024×1024, the overhead is acceptable. Optimize only if profiling shows it's a bottleneck.
+
+#### In-Place vs Double-Buffer Rule
+
+- **Point-wise operations** (no neighbor reads): Modify field in-place
+  - ET, leakage, growth, mortality — all read/write single cell
+- **Stencil operations** (read neighbors): Use double buffer
+  - Diffusion — reads 4 neighbors, must not see partially-updated values
+
+```python
+def soil_moisture_step(...):
+    # Point-wise: in-place is safe
+    evapotranspiration_step(M, ...)  # modifies M[i,j] based on M[i,j] only
+    leakage_step(M, ...)             # modifies M[i,j] based on M[i,j] only
+
+    # Stencil: must double-buffer
+    diffusion_step(M, M_new, ...)    # reads M[neighbors], writes M_new
+    copy_field(M_new, M)
+```
+
+**Why this works**: Point-wise ops don't read neighbors, so update order doesn't matter. Stencil ops read neighbors, so they'd see inconsistent state without double buffering.
 
 ### 4. Kernels (`kernels/`)
 
@@ -222,6 +256,35 @@ def compute_total_water() -> ti.f32:
             total += h[i, j] + M[i, j] * soil_depth
     return total
 ```
+
+## GPU Optimization Notes
+
+### What Won't Block Us
+
+1. **Two-pass routing is correct**: `compute_outflow` stores to `q_out`, then `apply_fluxes` reads `q_out[neighbors]`. No race conditions.
+
+2. **Neighbor offsets already centralized**: `utils.py` has `NEIGHBOR_DI/DJ/DIST` with `ti.static(range(8))` unrolling.
+
+3. **Atomic reductions are fine for now**: `ti.atomic_add` for mass totals works. Optimize to hierarchical reduction only if profiling shows it's a bottleneck.
+
+### Watch Out For
+
+1. **Don't fuse point-wise + stencil ops naively**: Tempting to combine ET + leakage + diffusion into one kernel. But diffusion needs the updated M from ET/leakage. Either:
+   - Keep them separate (current approach, correct)
+   - Fuse ET + leakage (both point-wise), then separate diffusion pass
+
+2. **Flow accumulation is iterative**: `compute_flow_accumulation` runs multiple iterations until convergence. Not easily parallelizable beyond what Taichi already does. For large grids, consider priority-flood algorithm.
+
+3. **Memory layout**: Current `ti.root.dense(ti.ij, (nx, ny))` is row-major. Fine for most access patterns. If we add tiled memory later, will need to change allocation.
+
+### Future Optimizations (Not Now)
+
+| Optimization | When to Consider |
+|-------------|------------------|
+| Pointer swap instead of copy | Profiling shows copy_field > 10% of runtime |
+| Hierarchical reduction | Grid > 2048×2048 and reduction > 5% of runtime |
+| Tiled memory layout | Memory bandwidth bound, irregular access patterns |
+| Kernel fusion | Clear hotspot with multiple sequential point-wise ops |
 
 ## What We Don't Need
 
