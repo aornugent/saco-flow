@@ -87,18 +87,20 @@ class SimulationParams:
 
 ### 3. Fields (`fields.py`)
 
-All Taichi fields declared in one place. Include a `copy_buffer()` helper for stencil operations.
+All Taichi fields declared in one place with ping-pong buffer management.
 
 ```python
 import taichi as ti
 
 # State fields (double-buffered for stencil operations)
+M = ti.field(ti.f32)       # [m³/m³] soil moisture - buffer A
+M_new = ti.field(ti.f32)   # [m³/m³] soil moisture - buffer B
+P = ti.field(ti.f32)       # [kg/m²] plant biomass - buffer A
+P_new = ti.field(ti.f32)   # [kg/m²] plant biomass - buffer B
+
+# Surface water (uses two-pass routing, not ping-pong)
 h = ti.field(ti.f32)       # [m] surface water depth
-h_new = ti.field(ti.f32)   # buffer for updates
-M = ti.field(ti.f32)       # [m³/m³] soil moisture
-M_new = ti.field(ti.f32)
-P = ti.field(ti.f32)       # [kg/m²] plant biomass
-P_new = ti.field(ti.f32)
+q_out = ti.field(ti.f32)   # [m/s] outflow rate (intermediate)
 
 # Static fields (read-only during simulation)
 Z = ti.field(ti.f32)       # [m] elevation
@@ -107,58 +109,144 @@ flow_frac = ti.field(ti.f32)  # D8 flow fractions
 
 def allocate(nx: int, ny: int):
     """Allocate all fields for given grid size."""
-    ti.root.dense(ti.ij, (nx, ny)).place(h, h_new, M, M_new, P, P_new)
-    ti.root.dense(ti.ij, (nx, ny)).place(Z, mask)
+    ti.root.dense(ti.ij, (nx, ny)).place(M, M_new, P, P_new)
+    ti.root.dense(ti.ij, (nx, ny)).place(h, q_out, Z, mask)
     ti.root.dense(ti.ijk, (nx, ny, 8)).place(flow_frac)
+```
 
+## Buffer Strategy: Ping-Pong (No Copy)
+
+Use **ping-pong buffering**: alternate which buffer is source vs destination each step. No copy needed.
+
+```python
+# Main simulation loop
+for step in range(num_steps):
+    if step % 2 == 0:
+        M_cur, M_nxt = M, M_new
+        P_cur, P_nxt = P, P_new
+    else:
+        M_cur, M_nxt = M_new, M
+        P_cur, P_nxt = P_new, P
+
+    # All kernels use M_cur/M_nxt consistently this step
+    soil_moisture_step(M_cur, M_nxt, P_cur, ...)
+    vegetation_step(P_cur, P_nxt, M_nxt, ...)  # Note: reads M_nxt (updated soil)
+```
+
+### Correctness Rules for Mixed In-Place + Stencil
+
+**The pattern for each physics step:**
+```
+[point-wise ops on current]* → [stencil: current → next] → (buffer flips)
+```
+
+**Rule 1: Point-wise ops modify current buffer in-place**
+
+Point-wise operations (no neighbor reads) can safely modify the current buffer:
+```python
 @ti.kernel
-def copy_field(src: ti.template(), dst: ti.template()):
-    """Copy src to dst. Use after stencil operations."""
-    for i, j in src:
-        dst[i, j] = src[i, j]
+def evapotranspiration_step(M_cur: ti.template(), ...):
+    for i, j in M_cur:
+        if mask[i, j] == 0:
+            continue
+        # Only reads/writes M_cur[i, j] — no neighbors
+        et = E_max * M_cur[i, j] / (M_cur[i, j] + k_M) * dt
+        M_cur[i, j] -= ti.min(et, M_cur[i, j])
 ```
 
-#### Buffer Strategy: Copy-Back vs Pointer Swap
+**Why safe**: Each cell is independent. Update order doesn't matter.
 
-**Current approach**: Copy `M_new → M` after stencil operations.
+**Rule 2: Stencil op must be LAST and writes to next buffer**
+
+Stencil operations (read neighbors) must:
+1. Be the final operation in the sequence for that field
+2. Read from current buffer, write to next buffer
 
 ```python
-diffusion_step(M, M_new, ...)  # reads M, writes M_new
-copy_field(M_new, M)           # O(N²) copy
+@ti.kernel
+def diffusion_step(M_cur: ti.template(), M_nxt: ti.template(), ...):
+    for i, j in M_cur:
+        if mask[i, j] == 0:
+            continue
+        # Reads neighbors from M_cur
+        laplacian = (M_cur[i-1, j] + M_cur[i+1, j] +
+                     M_cur[i, j-1] + M_cur[i, j+1] - 4*M_cur[i, j])
+        # Writes to M_nxt
+        M_nxt[i, j] = M_cur[i, j] + D * dt / (dx*dx) * laplacian
 ```
 
-**Trade-off**: This adds ~50% memory bandwidth overhead per stencil step. True pointer swapping would require tracking "which buffer is current" and passing it to every kernel:
+**Why last**: After stencil writes to `M_nxt`, the current buffer (`M_cur`) is stale. Any subsequent point-wise op would modify the wrong buffer.
+
+**Rule 3: Complete sequence for soil moisture**
 
 ```python
-# Pointer swap alternative (more complex)
-current = 0  # index tracking
-buffers = [(M, M_new), (M_new, M)]
-src, dst = buffers[current]
-diffusion_step(src, dst, ...)
-current = 1 - current  # flip index, no copy
+def soil_moisture_step(M_cur, M_nxt, P_cur, ...):
+    # 1. Point-wise: modify M_cur in-place (order doesn't matter)
+    evapotranspiration_step(M_cur, P_cur, ...)  # M_cur[i,j] -= ET
+    leakage_step(M_cur, ...)                     # M_cur[i,j] -= L
+
+    # 2. Stencil: MUST be last, reads M_cur neighbors, writes M_nxt
+    diffusion_step(M_cur, M_nxt, ...)
+
+    # After this: M_nxt holds the updated state, M_cur is stale
 ```
 
-**Recommendation**: Keep copy-back for simplicity. For grids < 1024×1024, the overhead is acceptable. Optimize only if profiling shows it's a bottleneck.
+### What Breaks Correctness
 
-#### In-Place vs Double-Buffer Rule
+**❌ Wrong: Stencil followed by point-wise**
+```python
+def broken_step(M_cur, M_nxt, ...):
+    diffusion_step(M_cur, M_nxt, ...)  # writes to M_nxt
+    leakage_step(M_cur, ...)           # WRONG: modifies stale M_cur!
+```
 
-- **Point-wise operations** (no neighbor reads): Modify field in-place
-  - ET, leakage, growth, mortality — all read/write single cell
-- **Stencil operations** (read neighbors): Use double buffer
-  - Diffusion — reads 4 neighbors, must not see partially-updated values
+**❌ Wrong: Two stencils in same step**
+```python
+def broken_step(M_cur, M_nxt, ...):
+    diffusion_step(M_cur, M_nxt, ...)   # M_nxt has diffused values
+    some_other_stencil(M_cur, M_nxt, ...)  # WRONG: reads stale M_cur!
+```
+
+**❌ Wrong: Reading wrong buffer after swap**
+```python
+# After soil step, M_nxt has updated soil moisture
+vegetation_step(P_cur, P_nxt, M_cur, ...)  # WRONG: should read M_nxt!
+```
+
+**✓ Correct: Consistent buffer usage within timestep**
+```python
+def timestep(step):
+    if step % 2 == 0:
+        M_cur, M_nxt = M, M_new
+    else:
+        M_cur, M_nxt = M_new, M
+
+    soil_moisture_step(M_cur, M_nxt, ...)   # M_nxt now current
+    vegetation_step(P_cur, P_nxt, M_nxt, ...)  # reads updated M_nxt ✓
+```
+
+### Surface Water: Two-Pass (Not Ping-Pong)
+
+Surface routing uses a different pattern — two-pass with intermediate `q_out`:
 
 ```python
-def soil_moisture_step(...):
-    # Point-wise: in-place is safe
-    evapotranspiration_step(M, ...)  # modifies M[i,j] based on M[i,j] only
-    leakage_step(M, ...)             # modifies M[i,j] based on M[i,j] only
+def route_surface_water(h, q_out, ...):
+    # Pass 1: compute outflow rates (reads h, writes q_out)
+    compute_outflow(h, q_out, ...)
 
-    # Stencil: must double-buffer
-    diffusion_step(M, M_new, ...)    # reads M[neighbors], writes M_new
-    copy_field(M_new, M)
+    # Pass 2: apply fluxes (reads q_out from neighbors, updates h)
+    apply_fluxes(h, q_out, ...)
 ```
 
-**Why this works**: Point-wise ops don't read neighbors, so update order doesn't matter. Stencil ops read neighbors, so they'd see inconsistent state without double buffering.
+**Why this works**: Pass 1 stores velocities in `q_out`. Pass 2 reads `q_out[neighbors]`, not `h[neighbors]`. No race condition because the stencil reads from a separately-computed field.
+
+### Summary Table
+
+| Operation Type | Buffer Pattern | Example |
+|---------------|----------------|---------|
+| Point-wise | In-place on current | ET, leakage, growth, mortality |
+| Stencil (diffusion) | current → next (ping-pong) | Soil/vegetation diffusion |
+| Two-pass routing | h + intermediate q_out | Surface water routing |
 
 ### 4. Kernels (`kernels/`)
 
@@ -186,7 +274,7 @@ def update_soil_moisture(dt: ti.f32):
 
 ### 5. Simulation (`simulation.py`)
 
-Main loop with operator splitting. Keep it flat.
+Main loop with operator splitting and ping-pong buffer management.
 
 ```python
 class Simulation:
@@ -202,34 +290,38 @@ class Simulation:
         self._load_dem(params.dem_path)
         self._initialize_state()
 
+    def _get_buffers(self):
+        """Return (current, next) buffer pairs based on step parity."""
+        if self.step_count % 2 == 0:
+            return (fields.M, fields.M_new), (fields.P, fields.P_new)
+        else:
+            return (fields.M_new, fields.M), (fields.P_new, fields.P)
+
     def step(self, dt: float):
         """One timestep with operator splitting."""
-        # 1. Surface routing
-        kernels.route_surface(dt)
+        (M_cur, M_nxt), (P_cur, P_nxt) = self._get_buffers()
 
-        # 2. Infiltration
-        kernels.infiltrate(dt)
+        # 1. Surface routing (two-pass, no ping-pong)
+        kernels.route_surface(fields.h, fields.q_out, dt)
 
-        # 3. Soil moisture redistribution
-        kernels.update_soil_moisture(dt)
+        # 2. Infiltration (point-wise: h and M_cur)
+        kernels.infiltrate(fields.h, M_cur, P_cur, dt)
 
-        # 4. Vegetation dynamics
-        kernels.update_vegetation(dt)
+        # 3. Soil moisture: point-wise then stencil
+        kernels.soil_moisture_step(M_cur, M_nxt, P_cur, dt)
+        # After: M_nxt has updated soil state
 
-        # Swap buffers
-        fields.swap_buffers()
+        # 4. Vegetation: point-wise then stencil (reads M_nxt!)
+        kernels.vegetation_step(P_cur, P_nxt, M_nxt, dt)
+        # After: P_nxt has updated vegetation state
 
+        # No copy needed — next step will flip buffer roles
         self.t += dt
         self.step_count += 1
 
-    def run(self, duration: float, dt: float):
-        """Run simulation for given duration."""
-        while self.t < duration:
-            self.step(dt)
-
-            # Check conservation periodically
-            if self.step_count % 100 == 0:
-                diagnostics.check_conservation()
+    def current_M(self):
+        """Return whichever buffer holds current soil moisture."""
+        return fields.M if self.step_count % 2 == 0 else fields.M_new
 ```
 
 ### 6. Diagnostics (`diagnostics.py`)
@@ -261,30 +353,34 @@ def compute_total_water() -> ti.f32:
 
 ### What Won't Block Us
 
-1. **Two-pass routing is correct**: `compute_outflow` stores to `q_out`, then `apply_fluxes` reads `q_out[neighbors]`. No race conditions.
+1. **Ping-pong buffering eliminates copy overhead**: No `copy_field()` calls needed. Buffer roles flip each step.
 
-2. **Neighbor offsets already centralized**: `utils.py` has `NEIGHBOR_DI/DJ/DIST` with `ti.static(range(8))` unrolling.
+2. **Two-pass routing is correct**: `compute_outflow` stores to `q_out`, then `apply_fluxes` reads `q_out[neighbors]`. No race conditions.
 
-3. **Atomic reductions are fine for now**: `ti.atomic_add` for mass totals works. Optimize to hierarchical reduction only if profiling shows it's a bottleneck.
+3. **Neighbor offsets already centralized**: `utils.py` has `NEIGHBOR_DI/DJ/DIST` with `ti.static(range(8))` unrolling.
+
+4. **Atomic reductions are fine for now**: `ti.atomic_add` for mass totals works. Optimize to hierarchical reduction only if profiling shows it's a bottleneck.
 
 ### Watch Out For
 
-1. **Don't fuse point-wise + stencil ops naively**: Tempting to combine ET + leakage + diffusion into one kernel. But diffusion needs the updated M from ET/leakage. Either:
-   - Keep them separate (current approach, correct)
-   - Fuse ET + leakage (both point-wise), then separate diffusion pass
+1. **Buffer consistency across operators**: After `soil_moisture_step(M_cur, M_nxt)`, vegetation must read `M_nxt` (the updated buffer), not `M_cur`. The simulation loop must track this carefully.
 
-2. **Flow accumulation is iterative**: `compute_flow_accumulation` runs multiple iterations until convergence. Not easily parallelizable beyond what Taichi already does. For large grids, consider priority-flood algorithm.
+2. **Don't fuse point-wise + stencil naively**: Tempting to combine ET + leakage + diffusion into one kernel. But:
+   - Point-wise ops must complete before stencil reads neighbors
+   - Either keep them separate, or fuse only the point-wise ops
 
-3. **Memory layout**: Current `ti.root.dense(ti.ij, (nx, ny))` is row-major. Fine for most access patterns. If we add tiled memory later, will need to change allocation.
+3. **Flow accumulation is iterative**: `compute_flow_accumulation` runs multiple iterations until convergence. For large grids, consider priority-flood algorithm.
+
+4. **Memory layout**: Current `ti.root.dense(ti.ij, (nx, ny))` is row-major. Fine for most access patterns. Tiled layout (`dense().dense()`) can improve cache efficiency for stencils.
 
 ### Future Optimizations (Not Now)
 
 | Optimization | When to Consider |
 |-------------|------------------|
-| Pointer swap instead of copy | Profiling shows copy_field > 10% of runtime |
+| Tiled memory layout | Memory bandwidth bound, grid > 1024×1024 |
 | Hierarchical reduction | Grid > 2048×2048 and reduction > 5% of runtime |
-| Tiled memory layout | Memory bandwidth bound, irregular access patterns |
-| Kernel fusion | Clear hotspot with multiple sequential point-wise ops |
+| Kernel fusion (point-wise) | Multiple sequential point-wise ops on same field |
+| `ti.block_dim()` tuning | After basic implementation works, for fine-tuning |
 
 ## What We Don't Need
 
