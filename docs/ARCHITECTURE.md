@@ -7,7 +7,8 @@ Simple architecture for a ~2000 line ecohydrological simulation. Add abstraction
 1. **Simplicity first** — Flat structure, minimal indirection
 2. **Correctness before speed** — Every kernel needs a mass conservation test
 3. **Explicit over implicit** — Physical variable names, units in comments
-4. **No premature abstraction** — 6 fields don't need a FieldContainer class
+4. **Taichi-idiomatic** — Leverage `ti.template()`, `ti.static()`, ping-pong buffers
+5. **Test with physics** — Validate against analytical solutions, not just conservation
 
 ## Module Structure
 
@@ -63,27 +64,33 @@ class SimulationParams:
     # Infiltration
     alpha: float      # [1/m] sorptive number
     k_sat: float      # [m/s] saturated conductivity
-    psi_sat: float    # [m] air-entry pressure
 
     # ... other parameters with units in comments
 
     def __post_init__(self):
         """Validate parameter ranges."""
-        if self.dx <= 0:
-            raise ValueError(f"dx must be positive, got {self.dx}")
-        if self.k_sat < 0:
-            raise ValueError(f"k_sat must be non-negative, got {self.k_sat}")
-        # ... other validations
+        _check_positive(self, 'dx', 'nx', 'ny')
+        _check_non_negative(self, 'alpha', 'k_sat')
 
     @classmethod
     def from_yaml(cls, path: str) -> "SimulationParams":
-        """Load parameters from YAML file."""
         with open(path) as f:
-            data = yaml.safe_load(f)
-        return cls(**data)
+            return cls(**yaml.safe_load(f))
+
+def _check_positive(obj, *names):
+    for name in names:
+        val = getattr(obj, name)
+        if val <= 0:
+            raise ValueError(f"{name} must be positive, got {val}")
+
+def _check_non_negative(obj, *names):
+    for name in names:
+        val = getattr(obj, name)
+        if val < 0:
+            raise ValueError(f"{name} must be non-negative, got {val}")
 ```
 
-**Why dataclass**: Self-documenting, IDE autocomplete, validation at load time. No `frozen=True` — keep it simple.
+**Why dataclass**: Self-documenting, IDE autocomplete, validation at load time.
 
 ### 3. Fields (`fields.py`)
 
@@ -349,73 +356,242 @@ def compute_total_water() -> ti.f32:
     return total
 ```
 
-## GPU Optimization Notes
+## GPU Optimization
 
-### What Won't Block Us
+### Target Hardware
 
-1. **Ping-pong buffering eliminates copy overhead**: No `copy_field()` calls needed. Buffer roles flip each step.
+| GPU | Architecture | HBM | Bandwidth | FP32 TFLOPS |
+|-----|--------------|-----|-----------|-------------|
+| B200 | Blackwell (sm_100) | 192GB HBM3e | 8 TB/s | ~2500 |
+| H100 | Hopper (sm_90) | 80GB HBM3 | 3.35 TB/s | ~1979 |
 
-2. **Two-pass routing is correct**: `compute_outflow` stores to `q_out`, then `apply_fluxes` reads `q_out[neighbors]`. No race conditions.
+**Performance target:** 10k×10k grid at ≥1 simulated year per wall-clock minute.
 
-3. **Neighbor offsets already centralized**: `utils.py` has `NEIGHBOR_DI/DJ/DIST` with `ti.static(range(8))` unrolling.
+### Bottleneck Analysis
 
-4. **Atomic reductions are fine for now**: `ti.atomic_add` for mass totals works. Optimize to hierarchical reduction only if profiling shows it's a bottleneck.
+The simulation is **memory-bandwidth bound**, not compute bound:
+- Arithmetic intensity: ~0.2-0.5 FLOP/byte (crossover at ~0.6 FLOP/byte on H100)
+- Each cell update: ~10-20 FLOPs but reads/writes ~40-100 bytes
+- Stencil operations dominate: diffusion reads 5 neighbors per cell
 
-### Watch Out For
+### Memory Budget
 
-1. **Buffer consistency across operators**: After `soil_moisture_step(M_cur, M_nxt)`, vegetation must read `M_nxt` (the updated buffer), not `M_cur`. The simulation loop must track this carefully.
+| Grid Size | Cells | Memory | H100 (80GB) | B200 (192GB) |
+|-----------|-------|--------|-------------|--------------|
+| 1k × 1k | 10⁶ | ~77 MB | ✓ | ✓ |
+| 10k × 10k | 10⁸ | ~7.7 GB | ✓ | ✓ |
+| 20k × 20k | 4×10⁸ | ~31 GB | ✓ | ✓ |
+| 50k × 50k | 2.5×10⁹ | ~193 GB | ✗ | ✓ |
 
-2. **Don't fuse point-wise + stencil naively**: Tempting to combine ET + leakage + diffusion into one kernel. But:
-   - Point-wise ops must complete before stencil reads neighbors
-   - Either keep them separate, or fuse only the point-wise ops
+### Current Architecture: What Works
 
-3. **Flow accumulation is iterative**: `compute_flow_accumulation` runs multiple iterations until convergence. For large grids, consider priority-flood algorithm.
+1. **Ping-pong buffering**: No `copy_field()` calls needed. Buffer roles flip each step.
+2. **Two-pass routing**: `compute_outflow` stores to `q_out`, then `apply_fluxes` reads `q_out[neighbors]`. No race conditions.
+3. **Centralized neighbor offsets**: `utils.py` has `NEIGHBOR_DI/DJ/DIST` with `ti.static(range(8))` unrolling.
+4. **Atomic reductions**: `ti.atomic_add` for mass totals. Optimize only if profiling shows bottleneck.
 
-4. **Memory layout**: Current `ti.root.dense(ti.ij, (nx, ny))` is row-major. Fine for most access patterns. Tiled layout (`dense().dense()`) can improve cache efficiency for stencils.
+### Correctness Constraints
 
-### Future Optimizations (Not Now)
+1. **Buffer consistency**: After `soil_moisture_step(M_cur, M_nxt)`, vegetation must read `M_nxt`.
+2. **Point-wise before stencil**: Don't fuse naively. Point-wise ops must complete before stencil reads neighbors.
+3. **Iterative flow accumulation**: Multiple iterations until convergence. Consider priority-flood for large grids.
+
+### Kernel Fusion Strategy
+
+**Goal:** Reduce global memory traffic by combining operations.
+
+Before (naive soil step):
+```
+1. evapotranspiration: Read M,P → Write M
+2. leakage: Read M → Write M
+3. diffusion: Read M → Write M_new
+Total: 8 reads + 4 writes = 48 bytes/cell
+```
+
+After (fused — point-wise only):
+```
+1. fused_et_leakage: Read M,P → Write M (in-place)
+2. diffusion: Read M → Write M_new
+Total: 4 reads + 2 writes = 24 bytes/cell (2× improvement)
+```
+
+**Constraint:** Cannot fuse point-wise with stencil in single kernel due to neighbor dependencies.
+
+### Shared Memory for Stencils
+
+Use `ti.block_local()` to cache stencil reads:
+
+```python
+@ti.kernel
+def diffusion_cached(M_cur: ti.template(), M_nxt: ti.template(), ...):
+    ti.block_local(M_cur)  # Cache in shared memory
+
+    for i, j in ti.ndrange((1, n-1), (1, n-1)):
+        # Stencil reads benefit from L1/shared memory
+        laplacian = M_cur[i-1,j] + M_cur[i+1,j] + M_cur[i,j-1] + M_cur[i,j+1] - 4*M_cur[i,j]
+        M_nxt[i, j] = M_cur[i, j] + D * dt / (dx*dx) * laplacian
+```
+
+### Coalesced Memory Access
+
+GPUs achieve peak bandwidth when threads access contiguous memory.
+
+```python
+# Correct: j innermost (row-major, coalesced)
+for i, j in ti.ndrange((1, n-1), (1, n-1)):
+    field[i, j] = ...
+
+# Wrong: strided access (not coalesced)
+for j, i in ti.ndrange((1, n-1), (1, n-1)):
+    field[i, j] = ...  # 4*n byte stride between threads
+```
+
+### Benchmarking Protocol
+
+1. **Warmup:** 10 timesteps (triggers JIT compilation)
+2. **Measurement:** 100+ vegetation timesteps (700+ simulated days)
+3. **Metrics:**
+   - Wall time per simulated year
+   - Cells updated per second
+   - Achieved bandwidth vs theoretical peak
+4. **Grid sizes:** 1k, 5k, 10k
+
+### Profiling
+
+```python
+ti.init(arch=ti.cuda, kernel_profiler=True)
+# ... run simulation ...
+ti.profiler.print_kernel_profiler_info()
+```
+
+### Future Optimizations
 
 | Optimization | When to Consider |
 |-------------|------------------|
 | Tiled memory layout | Memory bandwidth bound, grid > 1024×1024 |
 | Hierarchical reduction | Grid > 2048×2048 and reduction > 5% of runtime |
 | Kernel fusion (point-wise) | Multiple sequential point-wise ops on same field |
-| `ti.block_dim()` tuning | After basic implementation works, for fine-tuning |
-
-## What We Don't Need
-
-| Component | Why Not |
-|-----------|---------|
-| `FieldSpec` + `FieldRole` enum | 6 fields don't need a type system |
-| `FieldContainer` class | Taichi fields are already module-level singletons |
-| `TaichiParams` class | Pass parameters directly to kernels |
-| Protocol classes | Duck typing works; document signatures in docstrings |
-| `SimulationState` dataclass | Instance variables on the runner are fine |
-| Kernel registry | We're not swapping implementations at runtime |
-| Callback system | Call diagnostics directly where needed |
-| `MassTracker` class | A `check_conservation()` function is sufficient |
-| Deep module nesting | 6-8 files total, not 20+ |
+| `ti.block_dim()` tuning | After basic implementation works |
+| Temporal blocking | Pure diffusion with many small timesteps |
 
 ## Testing Strategy
 
-1. **Unit tests**: Each kernel in isolation with synthetic inputs
-2. **Conservation tests**: Verify mass balance on flat terrain
-3. **Integration tests**: Full simulation with known analytical solutions
+Tests should validate physics, not just code paths. Prefer analytical solutions over conservation-only tests.
+
+### 1. Analytical Solution Tests
+
+Compare simulation output against known exact solutions:
 
 ```python
-def test_infiltration_conserves_mass():
-    """Water leaving surface equals water entering soil."""
-    initial_surface = compute_total_surface_water()
-    initial_soil = compute_total_soil_water()
+def test_diffusion_gaussian_decay():
+    """1D diffusion of Gaussian: M(x,t) = M₀/√(4πDt) · exp(-x²/4Dt)"""
+    D = 0.1  # diffusivity
+    t = 1.0  # time
 
-    kernels.infiltrate(dt=1.0)
+    # Initialize Gaussian pulse
+    M_initial = gaussian_pulse(sigma=1.0)
 
-    final_surface = compute_total_surface_water()
-    final_soil = compute_total_soil_water()
+    # Run diffusion
+    for _ in range(100):
+        diffusion_step(M_cur, M_nxt, D=D, dt=0.01)
+        M_cur, M_nxt = M_nxt, M_cur
 
-    # Total should be unchanged
-    assert abs((final_surface + final_soil) -
-               (initial_surface + initial_soil)) < 1e-6
+    # Compare to analytical solution
+    M_analytical = gaussian_pulse(sigma=np.sqrt(1 + 4*D*t))
+    assert np.allclose(M_cur.to_numpy(), M_analytical, rtol=0.01)
+
+def test_kinematic_wave_velocity():
+    """Surface water on uniform slope: v = h^(2/3)·√S/n"""
+    slope = 0.01
+    h = 0.1  # depth
+    n = 0.03  # Manning's
+
+    v_expected = h**(2/3) * np.sqrt(slope) / n
+
+    # Run routing, measure front propagation
+    front_position = track_wetting_front(...)
+    v_measured = front_position / elapsed_time
+
+    assert abs(v_measured - v_expected) / v_expected < 0.05
+
+def test_infiltration_green_ampt():
+    """Cumulative infiltration: F = Kt + ψΔθ·ln(1 + F/ψΔθ)"""
+    # Compare against Green-Ampt analytical solution
+    ...
+```
+
+### 2. Equilibrium Tests
+
+Systems should reach known steady states:
+
+```python
+def test_vegetation_equilibrium():
+    """At equilibrium: growth rate = mortality → G(M*) = μ"""
+    # M* = μ·k_G / (g_max - μ)
+    M_equilibrium = mu * k_G / (g_max - mu)
+
+    # Initialize at equilibrium moisture
+    fill_field(M, M_equilibrium)
+    fill_field(P, 1.0)
+
+    # Run for many timesteps
+    for _ in range(1000):
+        vegetation_step(...)
+
+    # Vegetation should remain stable (not grow or die)
+    P_final = compute_total(P)
+    assert abs(P_final - P_initial) / P_initial < 0.01
+```
+
+### 3. Conservation Tests
+
+Mass/energy balance as a sanity check (necessary but not sufficient):
+
+```python
+def test_closed_system_conservation():
+    """No inflow/outflow → total mass constant."""
+    # Use closed boundary (all mask edges = 0)
+    initial_mass = compute_total_water()
+
+    for _ in range(100):
+        simulation.step(dt)
+
+    final_mass = compute_total_water()
+    assert abs(final_mass - initial_mass) / initial_mass < 1e-6
+
+def test_flux_accounting():
+    """Input - output = change in storage."""
+    rain_total = 0.0
+    et_total = 0.0
+    outflow_total = 0.0
+
+    for _ in range(100):
+        rain_total += apply_rainfall(...)
+        et_total += evapotranspiration_step(...)
+        outflow_total += route_surface_water(...)
+
+    storage_change = compute_total_water() - initial_water
+    expected_change = rain_total - et_total - outflow_total
+
+    assert abs(storage_change - expected_change) < 1e-6
+```
+
+### 4. Kernel Equivalence Tests
+
+When optimizing, verify fused kernels match naive:
+
+```python
+def test_soil_fused_matches_naive():
+    """Fused kernel produces same result as sequential kernels."""
+    # Run naive
+    evapotranspiration_step(M_naive, ...)
+    leakage_step(M_naive, ...)
+    diffusion_step(M_naive, M_naive_new, ...)
+
+    # Run fused
+    soil_step_fused(M_fused, M_fused_new, ...)
+
+    assert np.allclose(M_naive_new.to_numpy(), M_fused_new.to_numpy(), rtol=1e-5)
 ```
 
 ## When to Add Abstraction
@@ -432,5 +608,6 @@ Don't add abstraction because "we might need it later."
 ## References
 
 - `AGENTS.md` — Development conventions
-- `docs/mass_conservation.md` — Conservation testing patterns
 - `ecohydro_spec.md` — Physical equations and units
+- `docs/mass_conservation.md` — Conservation testing patterns
+- Taichi documentation: https://docs.taichi-lang.org/

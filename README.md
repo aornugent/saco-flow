@@ -69,26 +69,34 @@ saco-flow/
 ├── AGENTS.md                 # Guidelines for AI coding agents
 ├── IMPLEMENTATION_PLAN.md    # Phased development roadmap
 ├── ecohydro_spec.md          # Mathematical specification (authoritative)
-├── docs/                     # Component documentation
+├── docs/
+│   ├── ARCHITECTURE.md       # Architecture, buffer strategy, GPU optimization
 │   ├── overview.md           # State variables, governing equations
 │   ├── boundaries.md         # Domain mask, outlets, depressions
 │   ├── timesteps.md          # Operator splitting, CFL conditions
 │   ├── data_structures.md    # Memory layout, neighbor indexing
 │   ├── mass_conservation.md  # Verification and debugging
 │   └── kernels/              # Per-kernel documentation
-│       ├── flow_directions.md
-│       ├── flow_accumulation.md
-│       ├── surface_routing.md
-│       ├── infiltration.md
-│       ├── soil_moisture.md
-│       └── vegetation.md
-├── src/                      # Implementation (to be created)
-│   ├── kernels/
-│   ├── terrain.py
-│   ├── simulation.py
-│   └── output.py
-└── tests/                    # Test suite (to be created)
+├── src/
+│   ├── config.py             # DTYPE, DefaultParams
+│   ├── simulation.py         # Main simulation loop
+│   ├── output.py             # Visualization utilities
+│   └── kernels/
+│       ├── utils.py          # Neighbor offsets, field operations
+│       ├── flow.py           # MFD routing, flow accumulation
+│       ├── infiltration.py   # Surface → soil water transfer
+│       ├── soil.py           # ET, leakage, diffusion
+│       └── vegetation.py     # Growth, mortality, dispersal
+└── tests/                    # Test suite
 ```
+
+### Key Documentation
+
+| Document | Purpose |
+|----------|---------|
+| `docs/ARCHITECTURE.md` | Module structure, buffer strategy, GPU optimization |
+| `ecohydro_spec.md` | Authoritative mathematical specification |
+| `AGENTS.md` | Conventions for development |
 
 ## Quick Start
 
@@ -114,9 +122,9 @@ sim.run(years=10, output_interval_days=30)
 
 ## Development Status
 
-See `IMPLEMENTATION_PLAN.md` for the roadmap. This project is in early development.
+See `IMPLEMENTATION_PLAN.md` for the roadmap.
 
-**Current phase:** Phase 0 (Project Setup)
+**Current status:** Core simulation working. Mass conservation verified. Next: GPU optimization.
 
 ## Testing
 
