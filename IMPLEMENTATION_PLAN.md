@@ -19,7 +19,7 @@ The simulation is memory-bandwidth bound. Every optimization targets reducing gl
 | 6.0a | Core infrastructure (geometry, dtypes) | ✅ Complete |
 | 6.0b | Field management (containers, double-buffering) | ✅ Complete |
 | 6.0c | Parameter system (validation, injection) | ✅ Complete |
-| 6.0d | Kernel protocols (interfaces, registry) | ⬜ Pending |
+| 6.0d | Kernel protocols (interfaces, registry) | ✅ Complete |
 | 6.0e | Runner refactoring (orchestration) | ⬜ Pending |
 | 6.1 | Memory access patterns | ⬜ Pending |
 | 6.2 | Kernel fusion — soil | ⬜ Pending |
@@ -109,19 +109,32 @@ Validated, immutable parameter containers.
 
 ---
 
-## 6.0d: Kernel Protocols
+## 6.0d: Kernel Protocols ✅
 
 Abstract interfaces for swappable implementations.
 
-| Task | File |
-|------|------|
-| Protocol definitions (SoilKernel, VegetationKernel, FlowKernel) | `src/kernels/protocol.py` |
-| Move existing kernels to naive/ | `src/kernels/naive/*.py` |
-| Wrap naive kernels in protocol-compliant classes | `src/kernels/naive/*.py` |
-| KernelRegistry with variant selection | `src/kernels/__init__.py` |
-| Registry tests | `tests/test_kernel_registry.py` |
+| Task | File | Status |
+|------|------|--------|
+| Protocol definitions (SoilKernel, VegetationKernel, FlowKernel, InfiltrationKernel) | `src/kernels/protocol.py` | ✅ |
+| Move existing kernels to naive/ | `src/kernels/naive/*.py` | ✅ |
+| Wrap naive kernels in protocol-compliant classes | `src/kernels/naive/*.py` | ✅ |
+| KernelRegistry with variant selection | `src/kernels/__init__.py` | ✅ |
+| Registry tests | `tests/test_kernel_registry.py` | ✅ |
 
-**Exit:** Existing kernels accessible via registry, tests pass.
+**Exit:** ✅ Existing kernels accessible via registry, all tests pass.
+
+**Completed:** 2025-12-17
+
+**Summary:**
+- `src/kernels/protocol.py`: Protocol definitions for SoilKernel, VegetationKernel, InfiltrationKernel, FlowKernel, FlowDirectionKernel; KernelVariant enum (NAIVE, FUSED, TEMPORAL); result dataclasses (SoilFluxes, VegetationFluxes, InfiltrationFluxes, RoutingFluxes)
+- `src/kernels/naive/soil.py`: Soil moisture kernels (ET, leakage, diffusion) with NaiveSoilKernel wrapper
+- `src/kernels/naive/vegetation.py`: Vegetation kernels (growth, mortality, dispersal) with NaiveVegetationKernel wrapper
+- `src/kernels/naive/infiltration.py`: Infiltration kernel with NaiveInfiltrationKernel wrapper
+- `src/kernels/naive/flow.py`: Flow direction and routing kernels with NaiveFlowKernel, NaiveFlowDirectionKernel wrappers
+- `src/kernels/__init__.py`: KernelRegistry class with get/register methods for each kernel type, variant selection, global registry accessor
+- Original kernel files (soil.py, vegetation.py, etc.) now re-export from naive/ for backwards compatibility
+- `tests/test_kernel_registry.py`: 37 unit tests covering registry basics, error handling, registration, protocol compliance, and integration
+- All 315 tests pass (no regressions from 278 existing tests + 37 new tests)
 
 ---
 
