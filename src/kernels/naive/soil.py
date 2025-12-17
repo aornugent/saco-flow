@@ -11,13 +11,7 @@ import taichi as ti
 
 from src.core.dtypes import DTYPE
 from src.kernels.protocol import SoilKernel, SoilFluxes
-
-
-@ti.kernel
-def _copy_field(src: ti.template(), dst: ti.template()):
-    """Copy src to dst."""
-    for I in ti.grouped(src):
-        dst[I] = src[I]
+from src.kernels.utils import copy_field
 
 
 @ti.kernel
@@ -161,7 +155,7 @@ def soil_moisture_step(
     diffusion_step(M, M_new, mask, D_M, dx, dt)
 
     # Copy back
-    _copy_field(M_new, M)
+    copy_field(M_new, M)
 
     return float(total_et), float(total_leakage)
 

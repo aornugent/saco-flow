@@ -14,13 +14,7 @@ import taichi as ti
 
 from src.core.dtypes import DTYPE
 from src.kernels.protocol import VegetationKernel, VegetationFluxes
-
-
-@ti.kernel
-def _copy_field(src: ti.template(), dst: ti.template()):
-    """Copy src to dst."""
-    for I in ti.grouped(src):
-        dst[I] = src[I]
+from src.kernels.utils import copy_field
 
 
 @ti.kernel
@@ -148,7 +142,7 @@ def vegetation_step(
 
     # Diffusion uses double buffering
     vegetation_diffusion_step(P, P_new, mask, D_P, dx, dt)
-    _copy_field(P_new, P)
+    copy_field(P_new, P)
 
     return float(total_growth), float(total_mortality)
 

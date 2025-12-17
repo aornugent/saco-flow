@@ -133,6 +133,8 @@ Abstract interfaces for swappable implementations.
 - `src/kernels/naive/flow.py`: Flow direction and routing kernels with NaiveFlowKernel, NaiveFlowDirectionKernel wrappers
 - `src/kernels/__init__.py`: KernelRegistry class with get/register methods for each kernel type, variant selection, global registry accessor
 - Original kernel files (soil.py, vegetation.py, etc.) now re-export from naive/ for backwards compatibility
+- `src/kernels/utils.py`: Now re-exports NEIGHBOR_DI/DJ/DIST from geometry.py (eliminated duplicate definitions)
+- Naive kernels import `copy_field` from utils.py (eliminated duplicate _copy_field definitions)
 - `tests/test_kernel_registry.py`: 37 unit tests covering registry basics, error handling, registration, protocol compliance, and integration
 - All 315 tests pass (no regressions from 278 existing tests + 37 new tests)
 

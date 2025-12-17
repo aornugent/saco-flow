@@ -10,6 +10,7 @@ import taichi as ti
 from src.core.dtypes import DTYPE
 from src.core.geometry import NEIGHBOR_DI, NEIGHBOR_DJ, NEIGHBOR_DIST
 from src.kernels.protocol import FlowKernel, FlowDirectionKernel, RoutingFluxes
+from src.kernels.utils import copy_field
 
 
 # Flow exponent: 1.0=diffuse, 1.5=default, >5=approaches D8
@@ -18,13 +19,6 @@ FLOW_EXPONENT = 1.5
 # Minimum values to avoid division by zero
 MIN_SLOPE_SUM = 1e-10
 MIN_DEPTH = 1e-8  # [m] threshold for flow computation
-
-
-@ti.kernel
-def _copy_field(src: ti.template(), dst: ti.template()):
-    """Copy src to dst."""
-    for I in ti.grouped(src):
-        dst[I] = src[I]
 
 
 @ti.kernel
@@ -131,13 +125,13 @@ def compute_flow_accumulation(
     Returns number of iterations taken.
     """
     # Initialize accumulation with local source
-    _copy_field(local_source, flow_acc)
+    copy_field(local_source, flow_acc)
 
     for iteration in range(max_iters):
         change = flow_accumulation_step(
             local_source, flow_acc, flow_acc_new, flow_frac, mask
         )
-        _copy_field(flow_acc_new, flow_acc)
+        copy_field(flow_acc_new, flow_acc)
 
         if change < tol:
             return iteration + 1

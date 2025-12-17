@@ -4,13 +4,8 @@ import taichi as ti
 
 from src.config import DTYPE
 
-# 8-connectivity neighbor offsets (clockwise from East)
-# Index:  5  6  7
-#         4  X  0
-#         3  2  1
-NEIGHBOR_DI = ti.Vector([0, 1, 1, 1, 0, -1, -1, -1])
-NEIGHBOR_DJ = ti.Vector([1, 1, 0, -1, -1, -1, 0, 1])
-NEIGHBOR_DIST = ti.Vector([1.0, 1.414, 1.0, 1.414, 1.0, 1.414, 1.0, 1.414])
+# Re-export neighbor vectors from geometry for backwards compatibility
+from src.core.geometry import NEIGHBOR_DI, NEIGHBOR_DJ, NEIGHBOR_DIST
 
 
 @ti.kernel
