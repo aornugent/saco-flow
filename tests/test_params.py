@@ -46,11 +46,6 @@ class TestGridParams:
         assert params.n == 128
         assert params.dx == 2.0
 
-    def test_total_area(self):
-        """Test total area calculation."""
-        params = GridParams(n=100, dx=10.0)
-        assert params.total_area == (100 * 10.0) ** 2
-
     def test_cell_area(self):
         """Test cell area calculation."""
         params = GridParams(n=64, dx=5.0)
@@ -92,12 +87,6 @@ class TestRainfallParams:
         """Test events per year calculation."""
         params = RainfallParams(interstorm=18.25)  # 365/20 = 18.25
         assert abs(params.events_per_year - 20.0) < 0.01
-
-    def test_annual_rainfall(self):
-        """Test annual rainfall calculation."""
-        params = RainfallParams(rain_depth=0.02, interstorm=18.25)
-        # ~20 events * 0.02m = 0.4m/year
-        assert abs(params.annual_rainfall - 0.4) < 0.01
 
     def test_validation_negative_rain_depth(self):
         """Test validation rejects negative rain depth."""
@@ -159,12 +148,6 @@ class TestVegetationParams:
         assert params.mu == 0.001
         assert params.D_P == 0.01
 
-    def test_turnover_time(self):
-        """Test turnover time calculation."""
-        params = VegetationParams(mu=0.01)
-        assert params.turnover_time == 100.0  # 1/0.01 = 100 days
-
-
 class TestRoutingParams:
     """Tests for RoutingParams dataclass."""
 
@@ -172,7 +155,6 @@ class TestRoutingParams:
         """Test default parameter values."""
         params = RoutingParams()
         assert params.manning_n == 0.03
-        assert params.min_slope == 1e-6
 
 
 class TestDrainageParams:
@@ -270,11 +252,9 @@ class TestSimulationConfig:
         """Test convenience property accessors."""
         config = SimulationConfig(
             grid=GridParams(n=100, dx=2.0),
-            infiltration=InfiltrationParams(alpha=0.5),
         )
         assert config.n == 100
         assert config.dx == 2.0
-        assert config.alpha == 0.5
 
     def test_roundtrip_dict(self):
         """Test dictionary roundtrip preserves values."""

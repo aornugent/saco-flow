@@ -12,7 +12,37 @@ import numpy as np
 import pytest
 import taichi as ti
 
-from src.config import DTYPE, DefaultParams, get_backend
+from src.config import DTYPE, get_backend
+from src.params import SimulationConfig
+
+# Default values from SimulationConfig for test reference
+_config = SimulationConfig()
+
+
+class DefaultParams:
+    """Test defaults from SimulationConfig."""
+    # Grid
+    DX = _config.grid.dx
+    # Rainfall
+    R_MEAN = _config.rainfall.rain_depth
+    STORM_DURATION = _config.rainfall.storm_duration
+    INTERSTORM = _config.rainfall.interstorm
+    # Infiltration
+    K_SAT = _config.infiltration.alpha
+    ALPHA_I = 1.0
+    # Soil
+    M_SAT = _config.soil.M_sat
+    ET_MAX = _config.soil.E_max
+    LEAKAGE = _config.soil.L_max
+    D_SOIL = _config.soil.D_M
+    # Vegetation
+    G_MAX = _config.vegetation.g_max
+    K_G = _config.vegetation.k_G
+    MORTALITY = _config.vegetation.mu
+    D_VEG = _config.vegetation.D_P
+    # Routing
+    MANNING_N = _config.routing.manning_n
+    MIN_SLOPE = 1e-6
 from src.kernels.utils import (
     add_uniform,
     clamp_field,

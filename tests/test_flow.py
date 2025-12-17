@@ -4,7 +4,7 @@ Tests for flow direction, accumulation, and surface water routing.
 
 import numpy as np
 
-from src.config import DefaultParams
+from src.params import SimulationConfig
 from src.kernels.flow import (
     FLOW_EXPONENT,
     compute_cfl_timestep,
@@ -13,6 +13,15 @@ from src.kernels.flow import (
     route_surface_water,
 )
 from src.kernels.utils import compute_total, fill_field
+
+# Default values from SimulationConfig
+_config = SimulationConfig()
+
+
+class DefaultParams:
+    """Test defaults from SimulationConfig."""
+    DX = _config.grid.dx
+    MANNING_N = _config.routing.manning_n
 
 
 class TestFlowDirections:

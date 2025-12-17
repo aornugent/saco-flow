@@ -12,13 +12,30 @@ from src.config import init_taichi
 from src.simulation import (
     MassBalance,
     Simulation,
-    SimulationParams,
     SimulationState,
     create_simulation_fields,
     initialize_tilted_plane,
     initialize_vegetation,
 )
+from src.params import SimulationConfig, GridParams, RainfallParams
 from src.output import save_simulation_output, HAS_RASTERIO, HAS_MATPLOTLIB
+
+
+def make_config(n: int = 64, **kwargs) -> SimulationConfig:
+    """Create SimulationConfig with flat param syntax for test convenience."""
+    grid_kw = {"n": n}
+    rainfall_kw = {}
+
+    for k, v in kwargs.items():
+        if k in ("dx",):
+            grid_kw[k] = v
+        elif k in ("interstorm",):
+            rainfall_kw[k] = v
+
+    return SimulationConfig(
+        grid=GridParams(**grid_kw),
+        rainfall=RainfallParams(**rainfall_kw) if rainfall_kw else RainfallParams(),
+    )
 
 
 class TestMassBalance:
@@ -93,7 +110,7 @@ class TestSimulationRun:
 
     def test_simulation_runs_without_crash(self, taichi_init):
         """Simulation should complete without errors."""
-        params = SimulationParams(n=32)
+        params = make_config(n=32)
         sim = Simulation(params)
         state = sim.initialize(seed=42)
 
@@ -104,7 +121,7 @@ class TestSimulationRun:
 
     def test_simulation_mass_conservation(self, taichi_init):
         """Mass should be conserved throughout simulation."""
-        params = SimulationParams(n=32)
+        params = make_config(n=32)
         sim = Simulation(params)
         sim.initialize(seed=42)
 
@@ -117,7 +134,7 @@ class TestSimulationRun:
 
     def test_rainfall_increases_water(self, taichi_init):
         """Rainfall should increase total water in system."""
-        params = SimulationParams(n=32)
+        params = make_config(n=32)
         sim = Simulation(params)
         state = sim.initialize(seed=42)
 
@@ -131,7 +148,7 @@ class TestSimulationRun:
 
     def test_vegetation_responds_to_moisture(self, taichi_init):
         """Vegetation should change in response to soil moisture."""
-        params = SimulationParams(n=32)
+        params = make_config(n=32)
         sim = Simulation(params)
         state = sim.initialize(initial_moisture=0.2, seed=42)
 
@@ -147,7 +164,7 @@ class TestSimulationRun:
 
     def test_water_drains_without_rainfall(self, taichi_init):
         """Water should drain and evaporate without new rainfall."""
-        params = SimulationParams(n=32, interstorm=1000.0)  # Very rare rainfall
+        params = make_config(n=32, interstorm=1000.0)  # Very rare rainfall
         sim = Simulation(params)
         state = sim.initialize(initial_moisture=0.3, seed=42)
 
@@ -175,7 +192,7 @@ class TestSimulationOutput:
     @pytest.mark.skipif(not HAS_RASTERIO, reason="rasterio not installed")
     def test_geotiff_output_created(self, taichi_init):
         """GeoTIFF files should be created."""
-        params = SimulationParams(n=32)
+        params = make_config(n=32)
         sim = Simulation(params)
         state = sim.initialize(seed=42)
 
@@ -194,7 +211,7 @@ class TestSimulationOutput:
     @pytest.mark.skipif(not HAS_MATPLOTLIB, reason="matplotlib not installed")
     def test_thumbnail_output_created(self, taichi_init):
         """PNG thumbnails should be created."""
-        params = SimulationParams(n=32)
+        params = make_config(n=32)
         sim = Simulation(params)
         state = sim.initialize(seed=42)
 
@@ -215,7 +232,7 @@ class TestSimulationOutput:
         """GeoTIFF should have EPSG:3577 CRS."""
         import rasterio
 
-        params = SimulationParams(n=32)
+        params = make_config(n=32)
         sim = Simulation(params)
         state = sim.initialize(seed=42)
 
@@ -231,22 +248,22 @@ class TestSimulationOutput:
                 assert src.crs.to_epsg() == 3577
 
 
-class TestSimulationParams:
-    """Test parameter handling."""
+class TestSimulationConfig:
+    """Test configuration handling."""
 
-    def test_default_params_valid(self):
-        """Default parameters should be valid."""
-        params = SimulationParams()
+    def test_default_config_valid(self):
+        """Default configuration should be valid."""
+        config = make_config()
 
-        assert params.n > 0
-        assert params.dx > 0
-        assert params.dt_veg > 0
-        assert params.dt_soil > 0
+        assert config.n > 0
+        assert config.dx > 0
+        assert config.timestep.dt_veg > 0
+        assert config.timestep.dt_soil > 0
 
-    def test_custom_params_used(self, taichi_init):
-        """Custom parameters should be used in simulation."""
-        params = SimulationParams(n=48, dx=2.0)
-        sim = Simulation(params)
+    def test_custom_config_used(self, taichi_init):
+        """Custom configuration should be used in simulation."""
+        config = make_config(n=48, dx=2.0)
+        sim = Simulation(config)
         state = sim.initialize()
 
         assert state.fields.n == 48

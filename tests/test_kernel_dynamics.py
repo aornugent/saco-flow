@@ -2,7 +2,7 @@
 Tests for kernel dynamics validation beyond mass conservation.
 
 These tests verify that the kernel implementations match the physical equations
-from Saco et al. (2013) and ecohydro_spec.md, using DefaultParams values.
+from Saco et al. (2013) and ecohydro_spec.md.
 
 Key tests:
 1. Quantitative rate verification against exact equations
@@ -17,7 +17,44 @@ import math
 import numpy as np
 import pytest
 
-from src.config import DefaultParams
+from src.params import SimulationConfig
+
+
+# Default parameter values from SimulationConfig for test reference
+_config = SimulationConfig()
+
+
+class DefaultParams:
+    """Test defaults from SimulationConfig."""
+    # Grid
+    DX = _config.grid.dx
+    # Rainfall
+    R_MEAN = _config.rainfall.rain_depth
+    STORM_DURATION = _config.rainfall.storm_duration
+    INTERSTORM = _config.rainfall.interstorm
+    # Infiltration
+    ALPHA_I = 1.0  # Legacy: used in some tests as divisor
+    K_SAT = _config.infiltration.alpha  # Rate constant
+    K_P = _config.infiltration.k_P
+    W_0 = _config.infiltration.W_0
+    # Soil
+    M_SAT = _config.soil.M_sat
+    ET_MAX = _config.soil.E_max
+    K_ET = _config.soil.k_ET
+    BETA_ET = _config.soil.beta_ET
+    LEAKAGE = _config.soil.L_max
+    D_SOIL = _config.soil.D_M
+    # Vegetation
+    G_MAX = _config.vegetation.g_max
+    K_G = _config.vegetation.k_G
+    MORTALITY = _config.vegetation.mu
+    D_VEG = _config.vegetation.D_P
+    # Routing
+    MANNING_N = _config.routing.manning_n
+    MIN_SLOPE = 1e-6  # Legacy constant
+    # Drainage
+    H_THRESHOLD = _config.drainage.h_threshold
+    DRAINAGE_TIME = _config.drainage.drainage_time
 from src.kernels.infiltration import infiltration_step
 from src.kernels.soil import (
     compute_diffusion_timestep,

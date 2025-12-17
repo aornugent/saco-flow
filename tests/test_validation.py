@@ -16,8 +16,38 @@ import math
 import numpy as np
 import pytest
 
-from src.config import init_taichi, DefaultParams
-from src.simulation import Simulation, SimulationParams
+from src.config import init_taichi
+from src.simulation import Simulation
+from src.params import SimulationConfig, GridParams, RainfallParams, SoilParams, VegetationParams, InfiltrationParams
+
+
+def make_config(n: int = 64, **kwargs) -> SimulationConfig:
+    """Create SimulationConfig with flat param syntax for test convenience."""
+    grid_kw = {"n": n}
+    rainfall_kw = {}
+    soil_kw = {}
+    veg_kw = {}
+    inf_kw = {}
+
+    for k, v in kwargs.items():
+        if k in ("dx",):
+            grid_kw[k] = v
+        elif k in ("rain_depth", "interstorm", "storm_duration"):
+            rainfall_kw[k] = v
+        elif k in ("M_sat",):
+            soil_kw[k] = v
+        elif k in ("mu", "g_max"):
+            veg_kw[k] = v
+        elif k in ("W_0", "alpha", "k_P"):
+            inf_kw[k] = v
+
+    return SimulationConfig(
+        grid=GridParams(**grid_kw),
+        rainfall=RainfallParams(**rainfall_kw) if rainfall_kw else RainfallParams(),
+        soil=SoilParams(**soil_kw) if soil_kw else SoilParams(),
+        vegetation=VegetationParams(**veg_kw) if veg_kw else VegetationParams(),
+        infiltration=InfiltrationParams(**inf_kw) if inf_kw else InfiltrationParams(),
+    )
 
 
 class TestLongRunStability:
@@ -33,7 +63,7 @@ class TestLongRunStability:
 
     def test_no_nan_or_inf_after_one_year(self, taichi_init):
         """System should produce no NaN or Inf values after one year."""
-        params = SimulationParams(n=32)
+        params = make_config(n=32)
         sim = Simulation(params)
         sim.initialize(seed=42)
 
@@ -52,7 +82,7 @@ class TestLongRunStability:
 
     def test_fields_within_physical_bounds_after_one_year(self, taichi_init):
         """All fields should remain within physical bounds."""
-        params = SimulationParams(n=32)
+        params = make_config(n=32)
         sim = Simulation(params)
         sim.initialize(seed=42)
 
@@ -72,8 +102,8 @@ class TestLongRunStability:
 
         # Soil moisture: 0 <= M <= M_sat
         assert np.all(M[interior] >= 0), f"Negative soil moisture: min={M[interior].min()}"
-        assert np.all(M[interior] <= params.M_sat * 1.01), (
-            f"Soil moisture exceeds saturation: max={M[interior].max()}, M_sat={params.M_sat}"
+        assert np.all(M[interior] <= params.soil.M_sat * 1.01), (
+            f"Soil moisture exceeds saturation: max={M[interior].max()}, M_sat={params.soil.M_sat}"
         )
 
         # Vegetation: P >= 0
@@ -81,7 +111,7 @@ class TestLongRunStability:
 
     def test_mass_conservation_over_multiple_years(self, taichi_init):
         """Mass balance error should remain small over multi-year runs."""
-        params = SimulationParams(n=32)
+        params = make_config(n=32)
         sim = Simulation(params)
         sim.initialize(seed=42)
 
@@ -99,7 +129,7 @@ class TestLongRunStability:
         Mean vegetation should stay within reasonable bounds, not
         exponentially growing or collapsing to zero.
         """
-        params = SimulationParams(n=32)
+        params = make_config(n=32)
         sim = Simulation(params)
         sim.initialize(initial_veg_mean=0.5, initial_veg_std=0.1, seed=42)
 
@@ -137,7 +167,7 @@ class TestPatternEmergence:
         This is the hallmark of pattern formation: small perturbations
         get amplified into macroscopic patterns.
         """
-        params = SimulationParams(n=64)
+        params = make_config(n=64)
         sim = Simulation(params)
         # Start with very small perturbation from uniform
         sim.initialize(initial_veg_mean=0.5, initial_veg_std=0.01, seed=42)
@@ -166,7 +196,7 @@ class TestPatternEmergence:
 
         The coefficient of variation (std/mean) should be significant.
         """
-        params = SimulationParams(n=64)
+        params = make_config(n=64)
         sim = Simulation(params)
         sim.initialize(initial_veg_mean=0.5, initial_veg_std=0.1, seed=42)
 
@@ -195,7 +225,7 @@ class TestPatternEmergence:
         Adjacent cells should have correlated values, indicating
         coherent pattern structure.
         """
-        params = SimulationParams(n=64)
+        params = make_config(n=64)
         sim = Simulation(params)
         sim.initialize(initial_veg_mean=0.5, initial_veg_std=0.1, seed=42)
 
@@ -241,7 +271,7 @@ class TestPatternWavelength:
 
         This indicates organized pattern structure at a characteristic scale.
         """
-        params = SimulationParams(n=128)
+        params = make_config(n=128)
         sim = Simulation(params)
         sim.initialize(initial_veg_mean=0.5, initial_veg_std=0.1, seed=42)
 
@@ -299,7 +329,7 @@ class TestPatternWavelength:
         For Turing patterns, wavelength ~ sqrt(D_P * tau_growth)
         where tau_growth is the growth timescale.
         """
-        params = SimulationParams(n=128)
+        params = make_config(n=128)
         sim = Simulation(params)
         sim.initialize(initial_veg_mean=0.5, initial_veg_std=0.1, seed=42)
 
@@ -345,7 +375,7 @@ class TestTuringMechanism:
         High vegetation cells should accumulate more soil moisture
         during rainfall events (positive local feedback).
         """
-        params = SimulationParams(n=32)
+        params = make_config(n=32)
         sim = Simulation(params)
         sim.initialize(initial_moisture=0.05, seed=42)
 
@@ -381,7 +411,7 @@ class TestTuringMechanism:
         """
         from src.kernels.utils import fill_field
 
-        params = SimulationParams(n=32)
+        params = make_config(n=32)
         sim = Simulation(params)
         sim.initialize(initial_moisture=0.0, seed=42)
 
@@ -417,7 +447,7 @@ class TestTuringMechanism:
 
         This is the definition of instability that leads to patterns.
         """
-        params = SimulationParams(n=64)
+        params = make_config(n=64)
         sim = Simulation(params)
 
         # Start with very small perturbation
@@ -451,7 +481,7 @@ class TestParameterSensitivity:
     def test_higher_rainfall_increases_vegetation(self, taichi_init):
         """More rainfall should lead to higher mean vegetation."""
         # Low rainfall
-        params_low = SimulationParams(n=32, rain_depth=0.005, interstorm=20.0)
+        params_low = make_config(n=32, rain_depth=0.005, interstorm=20.0)
         sim_low = Simulation(params_low)
         sim_low.initialize(seed=42)
         sim_low.run(years=3.0, check_mass_balance=False, verbose=False)
@@ -460,7 +490,7 @@ class TestParameterSensitivity:
         mean_P_low = P_low[mask == 1].mean()
 
         # High rainfall
-        params_high = SimulationParams(n=32, rain_depth=0.02, interstorm=5.0)
+        params_high = make_config(n=32, rain_depth=0.02, interstorm=5.0)
         sim_high = Simulation(params_high)
         sim_high.initialize(seed=42)
         sim_high.run(years=3.0, check_mass_balance=False, verbose=False)
@@ -475,7 +505,7 @@ class TestParameterSensitivity:
     def test_higher_mortality_decreases_vegetation(self, taichi_init):
         """Higher mortality should lead to lower mean vegetation."""
         # Low mortality
-        params_low = SimulationParams(n=32, mu=0.0005)
+        params_low = make_config(n=32, mu=0.0005)
         sim_low = Simulation(params_low)
         sim_low.initialize(seed=42)
         sim_low.run(years=3.0, check_mass_balance=False, verbose=False)
@@ -484,7 +514,7 @@ class TestParameterSensitivity:
         mean_P_low = P_low[mask == 1].mean()
 
         # High mortality
-        params_high = SimulationParams(n=32, mu=0.005)
+        params_high = make_config(n=32, mu=0.005)
         sim_high = Simulation(params_high)
         sim_high.initialize(seed=42)
         sim_high.run(years=3.0, check_mass_balance=False, verbose=False)
@@ -502,7 +532,7 @@ class TestParameterSensitivity:
         pattern contrast as vegetation more strongly controls infiltration.
         """
         # Higher W_0 (bare soil infiltrates well) - less contrast
-        params_high_w0 = SimulationParams(n=64, W_0=0.5)
+        params_high_w0 = make_config(n=64, W_0=0.5)
         sim_high = Simulation(params_high_w0)
         sim_high.initialize(seed=42)
         sim_high.run(years=3.0, check_mass_balance=False, verbose=False)
@@ -511,7 +541,7 @@ class TestParameterSensitivity:
         cv_high = P_high[mask == 1].std() / P_high[mask == 1].mean()
 
         # Lower W_0 (bare soil infiltrates poorly) - more contrast
-        params_low_w0 = SimulationParams(n=64, W_0=0.1)
+        params_low_w0 = make_config(n=64, W_0=0.1)
         sim_low = Simulation(params_low_w0)
         sim_low.initialize(seed=42)
         sim_low.run(years=3.0, check_mass_balance=False, verbose=False)
@@ -532,7 +562,7 @@ class TestSlopeEffects:
 
     def test_water_accumulates_downslope(self, taichi_init):
         """Soil moisture should be higher in downslope regions."""
-        params = SimulationParams(n=64)
+        params = make_config(n=64)
         sim = Simulation(params)
         sim.initialize(slope=0.02, direction="south", seed=42)
 
@@ -562,7 +592,7 @@ class TestSlopeEffects:
         from src.kernels.utils import fill_field
 
         # Gentle slope
-        params = SimulationParams(n=32)
+        params = make_config(n=32)
         sim_gentle = Simulation(params)
         sim_gentle.initialize(slope=0.005, direction="south", seed=42)
         fill_field(sim_gentle.state.fields.h, 0.02)
@@ -572,7 +602,7 @@ class TestSlopeEffects:
             sim_gentle.state.fields.Z,
             sim_gentle.state.fields.flow_frac,
             sim_gentle.state.fields.mask,
-            params.dx, params.manning_n, cfl=0.5
+            params.dx, params.routing.manning_n, cfl=0.5
         )
 
         # Steep slope
@@ -585,7 +615,7 @@ class TestSlopeEffects:
             sim_steep.state.fields.Z,
             sim_steep.state.fields.flow_frac,
             sim_steep.state.fields.mask,
-            params.dx, params.manning_n, cfl=0.5
+            params.dx, params.routing.manning_n, cfl=0.5
         )
 
         # Steeper slope = faster flow = smaller CFL timestep
@@ -606,7 +636,7 @@ class TestEquilibriumStates:
 
         Total vegetation should stabilize (variance of year-to-year changes decreases).
         """
-        params = SimulationParams(n=32)
+        params = make_config(n=32)
         sim = Simulation(params)
         # Start with higher vegetation to see clear relaxation
         sim.initialize(initial_veg_mean=1.0, initial_veg_std=0.2, seed=42)
@@ -647,7 +677,7 @@ class TestEquilibriumStates:
 
         This tests that the coupled system reaches a sustainable equilibrium.
         """
-        params = SimulationParams(n=32)
+        params = make_config(n=32)
         sim = Simulation(params)
         sim.initialize(initial_veg_mean=0.5, initial_veg_std=0.1, seed=42)
 
@@ -674,7 +704,7 @@ class TestEquilibriumStates:
 
         This verifies growth ≈ mortality at steady state.
         """
-        params = SimulationParams(n=32)
+        params = make_config(n=32)
         sim = Simulation(params)
         sim.initialize(initial_veg_mean=0.5, initial_veg_std=0.1, seed=42)
 
