@@ -1,271 +1,145 @@
-# Phase 6: GPU Optimization
+# Implementation Plan: GPU Optimization
 
-**Goal:** Maximize throughput on B200 (sm_100) with H100 (sm_90) fallback.
+**Goal:** 10k×10k grid at ≥1 simulated year per wall-clock minute on H100/B200.
 
-**Target:** 10k×10k grid at ≥1 simulated year per wall-clock minute.
-
-**Read:** `docs/gpu_optimization.md`, `docs/ARCHITECTURE.md`, `ecohydro_spec.md:609-714`
+**Read:** `docs/ARCHITECTURE.md` (buffer strategy, optimization notes)
 
 ---
 
-## Overview
+## Current State
 
-The simulation is memory-bandwidth bound. Every optimization targets reducing global memory traffic while maintaining numerical equivalence (within 1e-5 tolerance).
+Core simulation working:
+- Surface routing (MFD, kinematic wave)
+- Infiltration (vegetation-enhanced)
+- Soil moisture (ET, leakage, diffusion)
+- Vegetation dynamics (growth, mortality, dispersal)
+- Mass conservation verified
 
-**Critical**: Complete architecture groundwork (6.0a-6.0e) before kernel fusion (6.2+).
-
-| Sub-phase | Focus | Status |
-|-----------|-------|--------|
-| 6.0a | Core infrastructure (geometry, dtypes) | ✅ Complete |
-| 6.0b | Field management (containers, double-buffering) | ✅ Complete |
-| 6.0c | Parameter system (validation, injection) | ✅ Complete |
-| 6.0d | Kernel protocols (interfaces, registry) | ⬜ Pending |
-| 6.0e | Runner refactoring (orchestration) | ⬜ Pending |
-| 6.1 | Memory access patterns | ⬜ Pending |
-| 6.2 | Kernel fusion — soil | ⬜ Pending |
-| 6.3 | Kernel fusion — vegetation | ⬜ Pending |
-| 6.4 | Kernel fusion — routing | ⬜ Pending |
-| 6.5 | Temporal blocking | ⬜ Pending |
-| 6.6 | 10k×10k validation | ⬜ Pending |
-| 6.7 | Benchmarking | ⬜ Pending |
-| 6.8 | Profiling | ⬜ Pending |
+The simulation is memory-bandwidth bound (~0.2-0.5 FLOP/byte).
 
 ---
 
-## 6.0a: Core Infrastructure ✅
+## Phase 1: Ping-Pong Buffers
 
-Centralized geometry and type definitions.
-
-| Task | File | Status |
-|------|------|--------|
-| Move DTYPE to dedicated module | `src/core/dtypes.py` | ✅ |
-| GridGeometry dataclass (nx, ny, dx) | `src/core/geometry.py` | ✅ |
-| Neighbor vectors (DI, DJ, DIST) | `src/core/geometry.py` | ✅ |
-| Neighbor helper functions (@ti.func) | `src/core/geometry.py` | ✅ |
-| Unit tests for geometry | `tests/test_geometry.py` | ✅ |
-
-**Exit:** ✅ Geometry module complete with tests, existing code unchanged.
-
-**Completed:** 2024-12-16
-
-**Summary:**
-- `src/core/dtypes.py`: DTYPE (ti.f32) definition
-- `src/core/geometry.py`: GridGeometry frozen dataclass with validation, 8-connectivity neighbor vectors (NEIGHBOR_DI, NEIGHBOR_DJ, NEIGHBOR_DIST), helper functions (is_interior, get_neighbor, get_neighbor_distance)
-- `tests/test_geometry.py`: 29 unit tests covering dataclass, vectors, and Taichi functions
-- All 140 existing tests pass (no regressions)
-
----
-
-## 6.0b: Field Management ✅
-
-Typed field containers with declarative specs.
-
-| Task | File | Status |
-|------|------|--------|
-| FieldSpec dataclass (name, dtype, shape, role) | `src/fields/base.py` | ✅ |
-| FieldContainer class (register, allocate, swap) | `src/fields/base.py` | ✅ |
-| FieldRole enum (STATE, STATIC, DERIVED, SCRATCH) | `src/fields/base.py` | ✅ |
-| State field factory (h, m, p) | `src/fields/state.py` | ✅ |
-| Static field factory (z, mask, flow_frac) | `src/fields/static.py` | ✅ |
-| Scratch/derived field factory | `src/fields/scratch.py` | ✅ |
-| Convenience wrappers (StateFields, StaticFields, ScratchFields) | `src/fields/*.py` | ✅ |
-| Double-buffer swap tests | `tests/test_fields.py` | ✅ |
-
-**Exit:** ✅ Field containers working, can coexist with SimpleNamespace.
-
-**Completed:** 2025-12-16
-
-**Summary:**
-- `src/fields/base.py`: FieldSpec frozen dataclass with validation (name, dtype, role, double_buffer, extra_dims), FieldRole enum, FieldContainer class with register/allocate/swap/get operations, memory tracking
-- `src/fields/state.py`: StateFields wrapper for h/m/p with swap operations, create_state_specs factory
-- `src/fields/static.py`: StaticFields wrapper with tilted plane and DEM initialization, create_static_specs factory
-- `src/fields/scratch.py`: ScratchFields wrapper for temporary/derived fields, create_scratch_specs and create_derived_specs factories
-- `tests/test_fields.py`: 58 unit tests covering specs, containers, double-buffering, swap operations, convenience wrappers, factory functions, and memory tracking
-- All 227 tests pass (no regressions from 169 existing tests + 58 new tests)
-
----
-
-## 6.0c: Parameter System ✅
-
-Validated, immutable parameter containers.
-
-| Task | File | Status |
-|------|------|--------|
-| Nested param dataclasses with validation | `src/params/schema.py` | ✅ |
-| YAML loader with from_yaml() | `src/params/loader.py` | ✅ |
-| TaichiParams injection class | `src/params/taichi_params.py` | ✅ |
-| Validation tests | `tests/test_params.py` | ✅ |
-
-**Exit:** ✅ Parameters loadable from YAML, validation catches errors at init.
-
-**Completed:** 2025-12-16
-
-**Summary:**
-- `src/params/schema.py`: 8 frozen dataclasses with `__post_init__` validation (GridParams, RainfallParams, InfiltrationParams, SoilParams, VegetationParams, RoutingParams, DrainageParams, TimestepParams), SimulationConfig aggregator with `to_dict`/`from_dict`/`with_updates` methods, convenience property accessors for backward compatibility
-- `src/params/loader.py`: YAML loading (`load_config`), saving (`save_config`), and merge utilities (`load_config_with_overrides`, `merge_configs`)
-- `src/params/taichi_params.py`: TaichiParams class bridging Python dataclasses to Taichi scalar fields for kernel access without recompilation
-- `tests/test_params.py`: 51 unit tests covering validation, YAML roundtrip, Taichi injection, and kernel readability
-- All 278 tests pass (no regressions from 227 existing tests + 51 new tests)
-
----
-
-## 6.0d: Kernel Protocols
-
-Abstract interfaces for swappable implementations.
+Eliminate `copy_field()` overhead by implementing true ping-pong buffering.
 
 | Task | File |
 |------|------|
-| Protocol definitions (SoilKernel, VegetationKernel, FlowKernel) | `src/kernels/protocol.py` |
-| Move existing kernels to naive/ | `src/kernels/naive/*.py` |
-| Wrap naive kernels in protocol-compliant classes | `src/kernels/naive/*.py` |
-| KernelRegistry with variant selection | `src/kernels/__init__.py` |
-| Registry tests | `tests/test_kernel_registry.py` |
+| Add `_get_buffers()` helper to Simulation | `src/simulation.py` |
+| Update `soil_moisture_step` to accept buffer pairs | `src/kernels/soil.py` |
+| Update `vegetation_step` to accept buffer pairs | `src/kernels/vegetation.py` |
+| Verify mass conservation still passes | `tests/` |
 
-**Exit:** Existing kernels accessible via registry, tests pass.
+**Exit:** No `copy_field()` calls in main loop. Tests pass.
 
 ---
 
-## 6.0e: Runner Refactoring
+## Phase 2: Memory Access Audit
 
-Clean orchestration using new components.
+Ensure coalesced access patterns before fusion.
 
 | Task | File |
 |------|------|
-| SimulationRunner using FieldContainer + Registry | `src/simulation/runner.py` |
-| Callback hooks (on_day, on_year) | `src/simulation/runner.py` |
-| MassTracker diagnostics class | `src/diagnostics/conservation.py` |
-| Integration tests with new runner | `tests/test_runner.py` |
+| Verify loop order (j innermost for row-major) | `src/kernels/*.py` |
+| Add `ti.block_dim()` hints where beneficial | `src/kernels/*.py` |
 
-**Exit:** All existing tests pass with refactored runner.
+**Exit:** All kernels use coalesced access.
 
 ---
 
-## 6.1: Memory Access Optimization
+## Phase 3: Point-Wise Kernel Fusion
 
-Ensure coalesced access before fusion.
+Fuse sequential point-wise operations to reduce memory traffic.
 
 | Task | File |
 |------|------|
-| Audit loop order (`j` innermost) | `src/kernels/naive/*.py` |
-| Add `ti.block_dim()` hints | `src/kernels/naive/*.py` |
-| Verify SoA layout in FieldContainer | `src/fields/base.py` |
+| Fuse `evapotranspiration_step` + `leakage_step` | `src/kernels/soil.py` |
+| Fuse `growth_step` + `mortality_step` | `src/kernels/vegetation.py` |
+| Add equivalence tests (fused vs sequential) | `tests/test_kernel_equivalence.py` |
 
-**Exit:** All kernels use coalesced access, tests pass.
+**Before:** 8 reads + 4 writes = 48 bytes/cell
+**After:** 4 reads + 2 writes = 24 bytes/cell (2× improvement)
+
+**Exit:** Fused kernels match naive within 1e-5 tolerance.
 
 ---
 
-## 6.2: Kernel Fusion — Soil Moisture
+## Phase 4: Shared Memory for Stencils
 
-Fuse ET + leakage + diffusion into single pass (4 memory round-trips → 1).
+Add `ti.block_local()` caching for diffusion stencils.
 
 | Task | File |
 |------|------|
-| Fused kernel with `ti.block_local(M)` | `src/kernels/optimized/soil_fused.py` |
-| Register fused variant in registry | `src/kernels/__init__.py` |
-| Equivalence tests (naive vs fused) | `tests/test_kernel_equivalence.py` |
+| Add `ti.block_local(M_cur)` to diffusion kernel | `src/kernels/soil.py` |
+| Add `ti.block_local(P_cur)` to vegetation diffusion | `src/kernels/vegetation.py` |
+| Benchmark improvement | `benchmarks/` |
 
-**Exit:** Results match naive within 1e-5, mass conserved.
-
----
-
-## 6.3: Kernel Fusion — Vegetation
-
-Fuse growth + mortality + diffusion.
-
-| Task | File |
-|------|------|
-| Fused kernel | `src/kernels/optimized/vegetation_fused.py` |
-| Register fused variant | `src/kernels/__init__.py` |
-| Equivalence tests | `tests/test_kernel_equivalence.py` |
-
-**Exit:** Results match naive within tolerance.
+**Exit:** Measurable bandwidth improvement on large grids.
 
 ---
 
-## 6.4: Kernel Fusion — Routing
-
-Optimize surface water routing (most time-critical during rainfall).
-
-| Task | File |
-|------|------|
-| Analyze two-pass necessity | `src/kernels/naive/flow.py` |
-| Inline CFL computation | `src/kernels/optimized/flow_fused.py` |
-| Early drainage termination | `src/simulation/runner.py` |
-
-**Constraint:** Two-pass may be required for mass conservation.
-
-**Exit:** Routing conserves mass, reduced kernel overhead.
-
----
-
-## 6.5: Temporal Blocking
-
-Batch multiple diffusion steps in shared memory.
-
-| Task | File |
-|------|------|
-| Temporal blocking kernel | `src/kernels/optimized/diffusion_temporal.py` |
-| Register TEMPORAL variant | `src/kernels/__init__.py` |
-| Document stability limits | `docs/gpu_optimization.md` |
-
-**Exit:** Document when beneficial vs overhead-dominated.
-
----
-
-## 6.6: 10k×10k Validation
+## Phase 5: 10k×10k Validation
 
 Verify execution at target scale.
 
 | Task | File |
 |------|------|
 | Memory allocation test | `tests/test_large_grid.py` |
-| End-to-end 10k×10k run | `benchmarks/` |
+| End-to-end 10k×10k run (1 year) | `benchmarks/` |
+| Verify mass conservation at scale | `tests/` |
 
-**Memory budget:** ~7.7 GB (<10% of H100's 80GB)
+**Memory budget:** ~7.7 GB (< 10% of H100's 80GB)
 
-**Exit:** 10k×10k runs without errors.
+**Exit:** 10k×10k runs without errors, mass conserved.
 
 ---
 
-## 6.7: Benchmarking
+## Phase 6: Benchmarking
 
 Systematic performance measurement.
 
 | Task | File |
 |------|------|
-| Benchmark harness | `benchmarks/benchmark.py` |
-| Throughput metrics | `docs/gpu_optimization.md` |
+| Benchmark harness with warmup | `benchmarks/benchmark.py` |
+| Measure cells/second, years/minute | `benchmarks/` |
+| Compare achieved vs theoretical bandwidth | `benchmarks/` |
 
-**Metrics:**
-- Cells/second
-- Simulated years/minute
-- Achieved bandwidth (GB/s)
+**Protocol:**
+1. Warmup: 10 timesteps (JIT compilation)
+2. Measurement: 100+ vegetation timesteps
+3. Grid sizes: 1k, 5k, 10k
 
 **Exit:** Performance target met or gap quantified.
 
 ---
 
-## 6.8: Profiling
+## Phase 7: Profiling & Iteration
 
-Identify remaining bottlenecks.
+Identify and address remaining bottlenecks.
 
 | Task | File |
 |------|------|
-| Taichi profiler integration | `src/core/dtypes.py` |
-| Profiling hooks in runner | `src/diagnostics/profiling.py` |
-| Kernel timing breakdown | `benchmarks/profile.py` |
+| Enable Taichi kernel profiler | `src/config.py` |
+| Document per-kernel timing breakdown | `docs/ARCHITECTURE.md` |
+| Iterate on hotspots | as needed |
 
-**Exit:** Per-kernel timing documented, bottlenecks identified.
+```python
+ti.init(arch=ti.cuda, kernel_profiler=True)
+# ... run simulation ...
+ti.profiler.print_kernel_profiler_info()
+```
+
+**Exit:** Bottlenecks identified, performance documented.
 
 ---
 
-## Exit Criteria (Phase 6 Complete)
+## Exit Criteria (Complete)
 
+- [ ] Ping-pong buffers implemented (no copy overhead)
 - [ ] All tests pass
-- [ ] Optimized kernels match naive within tolerance
 - [ ] 10k×10k at ≥1 year/minute on H100
 - [ ] >50% theoretical bandwidth achieved
-- [ ] Performance documented
+- [ ] Performance documented in ARCHITECTURE.md
 
 ---
 
@@ -273,3 +147,4 @@ Identify remaining bottlenecks.
 
 - **Taichi:** `>=1.7.0`
 - **Hardware:** H100 (sm_90) or B200 (sm_100) for GPU testing
+- **CPU fallback:** Works on any machine for development

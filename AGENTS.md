@@ -7,6 +7,7 @@ GPU-accelerated ecohydrological simulation using Taichi (B200/H100).
 1. **Simplicity first** — Naive implementation before optimization
 2. **Correctness before speed** — Every kernel needs a mass conservation test
 3. **Explicit over implicit** — Physical variable names, units in comments
+4. **Taichi-idiomatic** — Leverage `ti.template()`, `ti.static()`, ping-pong buffers
 
 ## Before Starting Work
 
@@ -24,8 +25,7 @@ Read the docs relevant to your task:
 | Timestep strategy | `docs/timesteps.md` |
 | Memory layout | `docs/data_structures.md` |
 | Testing/debugging | `docs/mass_conservation.md` |
-| GPU optimization | `docs/gpu_optimization.md` |
-| Architecture/refactoring | `docs/ARCHITECTURE.md` |
+| Architecture & GPU optimization | `docs/ARCHITECTURE.md` |
 | Current priorities | `IMPLEMENTATION_PLAN.md` |
 
 ## Conventions
