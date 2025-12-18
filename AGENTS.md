@@ -35,6 +35,7 @@ Read the docs relevant to your task:
 - **Constants:** `UPPER_SNAKE_CASE`
 - **Tests:** `test_<what>_<expected>`
 - **Optimized kernels:** suffix `_fused`, keep naive version for regression testing
+- **Code organization:** Do NOT use break comments (`====`) for section separators. Use clear function/class organization and whitespace instead.
 
 ## Kernel Pattern
 

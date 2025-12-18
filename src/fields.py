@@ -66,11 +66,6 @@ def swap_buffers(fields: SimpleNamespace, which: str) -> None:
         raise ValueError(f"Unknown field: {which}")
 
 
-# =============================================================================
-# Initialization utilities
-# =============================================================================
-
-
 def initialize_mask(fields: SimpleNamespace) -> None:
     """Set boundary mask: boundaries=0, interior=1."""
     n = fields.n
@@ -145,11 +140,6 @@ def initialize_vegetation(
     P_np = np.random.normal(mean, std, (n, n)).astype(np.float32)
     P_np = np.clip(P_np, 0.0, None)  # Ensure non-negative
     fields.P.from_numpy(P_np)
-
-
-# =============================================================================
-# Utility kernels
-# =============================================================================
 
 
 @ti.kernel
