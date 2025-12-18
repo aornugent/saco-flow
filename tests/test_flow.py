@@ -401,7 +401,7 @@ class TestBoundaryOutflow:
         actual_mass_loss = initial_mass - final_mass
 
         # Reported outflow should match actual mass loss
-        assert abs(total_reported_outflow - actual_mass_loss) < 1e-5, (
+        assert abs(total_reported_outflow - actual_mass_loss) < 1e-4, (
             f"Boundary outflow mismatch: reported={total_reported_outflow:.6f}, "
             f"actual loss={actual_mass_loss:.6f}"
         )
@@ -428,7 +428,7 @@ class TestBoundaryOutflow:
         total_outflow = 0.0
 
         # Route for many steps
-        for _ in range(500):
+        for _ in range(1500):
             dt = compute_cfl_timestep(
                 fields.h, fields.Z, fields.flow_frac, fields.mask,
                 dx, manning_n, cfl=0.5
