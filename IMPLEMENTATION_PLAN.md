@@ -47,20 +47,22 @@ Ensure coalesced access patterns before fusion.
 
 ---
 
-## Phase 3: Point-Wise Kernel Fusion
+## Phase 3: Point-Wise Kernel Fusion ✓
 
 Fuse sequential point-wise operations to reduce memory traffic.
 
-| Task | File |
-|------|------|
-| Fuse `evapotranspiration_step` + `leakage_step` | `src/kernels/soil.py` |
-| Fuse `growth_step` + `mortality_step` | `src/kernels/vegetation.py` |
-| Add equivalence tests (fused vs sequential) | `tests/test_kernel_equivalence.py` |
+| Task | File | Status |
+|------|------|--------|
+| Consolidate diffusion into generic `laplacian_diffusion_step` | `src/geometry.py` | ✓ |
+| Fuse `evapotranspiration_step` + `leakage_step` → `et_leakage_step_fused` | `src/kernels/soil.py` | ✓ |
+| Fuse `growth_step` + `mortality_step` → `growth_mortality_step_fused` | `src/kernels/vegetation.py` | ✓ |
+| Add equivalence tests (fused vs sequential) | `tests/test_kernel_equivalence.py` | ✓ |
+| Keep naive kernels for regression testing | `src/kernels/*.py` | ✓ |
 
 **Before:** 8 reads + 4 writes = 48 bytes/cell
 **After:** 4 reads + 2 writes = 24 bytes/cell (2× improvement)
 
-**Exit:** Fused kernels match naive within 1e-5 tolerance.
+**Exit:** Fused kernels match naive within 1e-5 tolerance. ✓
 
 ---
 
@@ -121,6 +123,7 @@ Identify and address remaining bottlenecks.
 |------|------|
 | Enable Taichi kernel profiler | `src/config.py` |
 | Document per-kernel timing breakdown | `docs/ARCHITECTURE.md` |
+| Profile atomic reduction overhead | `src/kernels/soil.py`, `src/kernels/vegetation.py` |
 | Iterate on hotspots | as needed |
 
 ```python
@@ -129,14 +132,21 @@ ti.init(arch=ti.cuda, kernel_profiler=True)
 ti.profiler.print_kernel_profiler_info()
 ```
 
+**Known items to profile:**
+- Atomic operations (`ti.atomic_add`) used for mass balance tracking in all kernels
+- At 10k×10k, this is 100M atomic adds per kernel call — may serialize on GPU
+- Consider hierarchical reduction if atomics > 5% of kernel time
+
 **Exit:** Bottlenecks identified, performance documented.
 
 ---
 
 ## Exit Criteria (Complete)
 
-- [ ] Ping-pong buffers implemented (no copy overhead)
-- [ ] All tests pass
+- [x] Ping-pong buffers implemented (no copy overhead)
+- [x] Point-wise kernel fusion (2× memory traffic reduction)
+- [x] Generic diffusion kernel consolidated
+- [x] All tests pass
 - [ ] 10k×10k at ≥1 year/minute on H100
 - [ ] >50% theoretical bandwidth achieved
 - [ ] Performance documented in ARCHITECTURE.md
