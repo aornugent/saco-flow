@@ -72,3 +72,23 @@ Key points: check mask, clamp to physical bounds, use double buffering for stenc
 2. Write test first (conservation + edge cases)
 3. Implement simply, verify mass balance
 4. Document with equation and units
+
+## Running Tests
+
+```bash
+# Fast tests only (skip multi-year simulations)
+pytest -m "not slow"
+
+# All tests including slow validation tests
+pytest
+
+# Specific test file
+pytest tests/test_flow.py
+
+# With coverage
+pytest --cov=src --cov-report=term-missing
+```
+
+**Test markers:**
+- `@pytest.mark.slow` — Multi-year simulations (minutes to run). Used for pattern emergence, parameter sensitivity, and long-term stability tests.
+- Unmarked tests — Unit tests and short integration tests (seconds to run).
