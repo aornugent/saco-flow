@@ -9,10 +9,12 @@ Where:
 - D_P·∇²P                     -- seed dispersal diffusion
 """
 
+from types import SimpleNamespace
+
 import taichi as ti
 
+from src.fields import swap_buffers
 from src.geometry import DTYPE
-from src.fields import copy_field
 
 
 @ti.kernel
@@ -128,19 +130,31 @@ def vegetation_diffusion_step(
 
 
 def vegetation_step(
-    P, P_new, M, mask, g_max, k_G, mu, D_P, dx, dt
+    fields: SimpleNamespace,
+    g_max: float,
+    k_G: float,
+    mu: float,
+    D_P: float,
+    dx: float,
+    dt: float,
 ) -> tuple[float, float]:
     """
     Combined vegetation update: growth, mortality, dispersal.
 
+    Uses ping-pong buffering: after this call, fields.P holds the updated
+    vegetation biomass (buffers are swapped, no copy needed).
+
     Returns (total_growth, total_mortality) for tracking.
     """
-    total_growth = growth_step(P, M, mask, g_max, k_G, dt)
-    total_mortality = mortality_step(P, mask, mu, dt)
+    # Growth and mortality modify P in-place (point-wise operations)
+    total_growth = growth_step(fields.P, fields.M, fields.mask, g_max, k_G, dt)
+    total_mortality = mortality_step(fields.P, fields.mask, mu, dt)
 
-    # Diffusion uses double buffering
-    vegetation_diffusion_step(P, P_new, mask, D_P, dx, dt)
-    copy_field(P_new, P)
+    # Diffusion uses double buffering: reads P, writes P_new
+    vegetation_diffusion_step(fields.P, fields.P_new, fields.mask, D_P, dx, dt)
+
+    # Swap buffers (O(1) pointer swap, not O(n²) copy)
+    swap_buffers(fields, "P")
 
     return float(total_growth), float(total_mortality)
 

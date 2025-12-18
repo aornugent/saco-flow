@@ -4,8 +4,8 @@ Tests for vegetation dynamics: growth, mortality, dispersal.
 
 import numpy as np
 
-from src.fields import fill_field, copy_field
 from src.diagnostics import compute_total
+from src.fields import fill_field
 from src.kernels.vegetation import (
     compute_equilibrium_moisture,
     compute_vegetation_timestep,
@@ -261,7 +261,7 @@ class TestCombinedVegetation:
         fill_field(fields.M, 0.2)
 
         growth, mortality = vegetation_step(
-            fields.P, fields.P_new, fields.M, fields.mask,
+            fields,
             g_max=0.1, k_G=0.1, mu=0.01, D_P=0.01, dx=1.0, dt=7.0
         )
 
@@ -286,7 +286,7 @@ class TestCombinedVegetation:
         # Run for some timesteps
         for _ in range(50):
             vegetation_step(
-                fields.P, fields.P_new, fields.M, fields.mask,
+                fields,
                 g_max=g_max, k_G=k_G, mu=mu, D_P=0.01, dx=1.0, dt=7.0
             )
 
@@ -295,7 +295,7 @@ class TestCombinedVegetation:
         # Run more steps
         for _ in range(50):
             vegetation_step(
-                fields.P, fields.P_new, fields.M, fields.mask,
+                fields,
                 g_max=g_max, k_G=k_G, mu=mu, D_P=0.01, dx=1.0, dt=7.0
             )
 
@@ -317,7 +317,7 @@ class TestCombinedVegetation:
 
         for _ in range(500):
             vegetation_step(
-                fields.P, fields.P_new, fields.M, fields.mask,
+                fields,
                 g_max=0.1, k_G=0.1, mu=0.01, D_P=0.01, dx=1.0, dt=7.0
             )
 

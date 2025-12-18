@@ -41,19 +41,27 @@ Read the docs relevant to your task:
 
 ```python
 @ti.kernel
-def update_soil_moisture(dt: ti.f32):
+def update_soil_moisture(
+    M: ti.template(),       # Always pass fields as ti.template()
+    M_new: ti.template(),
+    mask: ti.template(),
+    M_sat: ti.f32,
+    dt: ti.f32,
+):
     """Update soil moisture. Physics: dM/dt = -ET - L + D∇²M"""
-    for i, j in ti.ndrange((1, N-1), (1, N-1)):
+    n = M.shape[0]
+    for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
         if mask[i, j] == 0:
             continue
         # ... compute fluxes ...
         M_new[i, j] = ti.max(0.0, ti.min(M_sat, M_local + dM))
 ```
 
-Key points: check mask, clamp to physical bounds, use double buffering for stencils.
+Key points: pass fields as `ti.template()`, check mask, clamp to physical bounds, use double buffering for stencils.
 
 ## Gotchas
 
+- **ti.template() required**: Pass fields as `ti.template()` arguments, never capture in closures. Closure-captured fields are baked in at JIT compile time — `swap_buffers()` won't work!
 - **Flat cells**: Flag with `flow_frac[i,j,0] = -1.0` — no downslope neighbors
 - **Boundaries**: Always check `mask[ni, nj] == 1` before reading neighbors
 - **Stability**: CFL for routing `dt ≤ dx/v`, diffusion `dt ≤ dx²/4D`

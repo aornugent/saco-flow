@@ -6,10 +6,12 @@ Soil moisture dynamics: ET, deep leakage, and lateral diffusion.
 (Infiltration handled separately in infiltration.py)
 """
 
+from types import SimpleNamespace
+
 import taichi as ti
 
+from src.fields import swap_buffers
 from src.geometry import DTYPE
-from src.fields import copy_field
 
 
 @ti.kernel
@@ -138,22 +140,35 @@ def diffusion_step(
 
 
 def soil_moisture_step(
-    M, M_new, P, mask, E_max, k_M, beta_E, L_max, M_sat, D_M, dx, dt
+    fields: SimpleNamespace,
+    E_max: float,
+    k_M: float,
+    beta_E: float,
+    L_max: float,
+    M_sat: float,
+    D_M: float,
+    dx: float,
+    dt: float,
 ) -> tuple[float, float]:
     """
     Combined soil moisture update: ET, leakage, diffusion.
 
+    Uses ping-pong buffering: after this call, fields.M holds the updated
+    soil moisture (buffers are swapped, no copy needed).
+
     Returns (total_et, total_leakage) for mass balance tracking.
     """
-    # ET and leakage modify M in-place
-    total_et = evapotranspiration_step(M, P, mask, E_max, k_M, beta_E, dt)
-    total_leakage = leakage_step(M, mask, L_max, M_sat, dt)
+    # ET and leakage modify M in-place (point-wise operations)
+    total_et = evapotranspiration_step(
+        fields.M, fields.P, fields.mask, E_max, k_M, beta_E, dt
+    )
+    total_leakage = leakage_step(fields.M, fields.mask, L_max, M_sat, dt)
 
-    # Diffusion uses double buffering
-    diffusion_step(M, M_new, mask, D_M, dx, dt)
+    # Diffusion uses double buffering: reads M, writes M_new
+    diffusion_step(fields.M, fields.M_new, fields.mask, D_M, dx, dt)
 
-    # Copy back
-    copy_field(M_new, M)
+    # Swap buffers (O(1) pointer swap, not O(n²) copy)
+    swap_buffers(fields, "M")
 
     return float(total_et), float(total_leakage)
 

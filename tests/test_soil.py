@@ -4,6 +4,8 @@ Tests for soil moisture dynamics: ET, leakage, diffusion.
 
 import numpy as np
 
+from src.diagnostics import compute_total
+from src.fields import fill_field
 from src.kernels.soil import (
     compute_diffusion_timestep,
     diffusion_step,
@@ -11,8 +13,6 @@ from src.kernels.soil import (
     leakage_step,
     soil_moisture_step,
 )
-from src.fields import fill_field, copy_field
-from src.diagnostics import compute_total
 
 
 class TestEvapotranspiration:
@@ -262,7 +262,7 @@ class TestCombinedSoilMoisture:
         fill_field(fields.P, 0.5)
 
         total_et, total_leak = soil_moisture_step(
-            fields.M, fields.M_new, fields.P, fields.mask,
+            fields,
             E_max=0.01, k_M=0.05, beta_E=0.5,
             L_max=0.001, M_sat=0.4,
             D_M=0.1, dx=1.0, dt=0.1
@@ -285,7 +285,7 @@ class TestCombinedSoilMoisture:
 
         for _ in range(10):
             soil_moisture_step(
-                fields.M, fields.M_new, fields.P, fields.mask,
+                fields,
                 E_max=0.01, k_M=0.05, beta_E=0.5,
                 L_max=0.001, M_sat=M_sat,
                 D_M=0.1, dx=1.0, dt=0.1

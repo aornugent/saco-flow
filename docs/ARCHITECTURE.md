@@ -257,13 +257,20 @@ def route_surface_water(h, q_out, ...):
 
 ### 4. Kernels (`kernels/`)
 
-One file per physical process. Follow the pattern:
+One file per physical process. **Critical**: Always pass fields as `ti.template()` arguments.
 
 ```python
 @ti.kernel
-def update_soil_moisture(dt: ti.f32):
+def update_soil_moisture(
+    M: ti.template(),      # Pass fields as ti.template() arguments
+    M_new: ti.template(),
+    mask: ti.template(),
+    M_sat: ti.f32,
+    dt: ti.f32,
+):
     """Update soil moisture. Physics: dM/dt = I - ET - L"""
-    for i, j in ti.ndrange((1, N-1), (1, N-1)):
+    n = M.shape[0]
+    for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
         if mask[i, j] == 0:
             continue
 
@@ -278,6 +285,40 @@ def update_soil_moisture(dt: ti.f32):
 ```
 
 **Pattern**: Check mask → compute fluxes → clamp to bounds → write to buffer.
+
+#### ⚠️ CRITICAL: ti.template() vs Closure Capture
+
+**Always pass fields as `ti.template()` arguments. Never capture fields in closures.**
+
+```python
+# ❌ WRONG: Closure-captured field (baked in at compile time)
+M = ti.field(ti.f32, shape=(n, n))
+M_new = ti.field(ti.f32, shape=(n, n))
+
+@ti.kernel
+def bad_kernel():
+    for i, j in M:            # M is captured at JIT compile time
+        M_new[i, j] = M[i, j]  # Both references are frozen
+
+# After swap_buffers(), this kernel STILL uses the original M/M_new!
+# The swap only changes Python references, not the compiled kernel.
+
+# ✓ CORRECT: Pass fields as ti.template() arguments
+@ti.kernel
+def good_kernel(M: ti.template(), M_new: ti.template()):
+    for i, j in M:
+        M_new[i, j] = M[i, j]
+
+# After swap_buffers(), calling good_kernel(fields.M, fields.M_new)
+# correctly uses whichever buffers the Python references point to.
+```
+
+**Why this matters**: Taichi JIT-compiles kernels on first call. Fields referenced
+directly in the kernel body are "baked in" at compile time. If you later swap
+buffer references in Python, the compiled kernel still accesses the original fields.
+
+**Rule**: If a field will be swapped via `swap_buffers()`, it MUST be passed as
+a `ti.template()` argument, not captured in a closure.
 
 ### 5. Simulation (`simulation.py`)
 
