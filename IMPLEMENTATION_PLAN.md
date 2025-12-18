@@ -34,16 +34,24 @@ Eliminate `copy_field()` overhead by implementing true ping-pong buffering.
 
 ---
 
-## Phase 2: Memory Access Audit
+## Phase 2: Memory Access Audit ✓
 
 Ensure coalesced access patterns before fusion.
 
-| Task | File |
-|------|------|
-| Verify loop order (j innermost for row-major) | `src/kernels/*.py` |
-| Add `ti.block_dim()` hints where beneficial | `src/kernels/*.py` |
+| Task | File | Status |
+|------|------|--------|
+| Verify loop order (j innermost for row-major) | `src/kernels/*.py` | ✓ |
+| Document memory access patterns | `docs/ARCHITECTURE.md` | ✓ |
 
-**Exit:** All kernels use coalesced access.
+**Audit Results:**
+All kernels already use correct coalesced access patterns:
+- `for i, j in ti.ndrange(...)` has `j` as fastest-varying dimension (correct for row-major)
+- Utility kernels use `for I in ti.grouped(field)` which auto-optimizes
+
+**Note:** `ti.block_dim()` tuning deferred to Phase 6 (Benchmarking). Without performance data,
+we'd be guessing. Taichi's defaults are reasonable; optimize based on measurements.
+
+**Exit:** All kernels use coalesced access. ✓
 
 ---
 
@@ -96,22 +104,25 @@ Verify execution at target scale.
 
 ---
 
-## Phase 6: Benchmarking
+## Phase 6: Benchmarking & Block Tuning
 
-Systematic performance measurement.
+Systematic performance measurement and thread block optimization.
 
 | Task | File |
 |------|------|
 | Benchmark harness with warmup | `benchmarks/benchmark.py` |
 | Measure cells/second, years/minute | `benchmarks/` |
 | Compare achieved vs theoretical bandwidth | `benchmarks/` |
+| Test `ti.block_dim()` configurations (8×8, 16×16, 32×8) | `src/kernels/*.py` |
+| Profile and select optimal block dimensions | `benchmarks/` |
 
 **Protocol:**
 1. Warmup: 10 timesteps (JIT compilation)
 2. Measurement: 100+ vegetation timesteps
 3. Grid sizes: 1k, 5k, 10k
+4. Block dimension sweep: Test 2-3 configurations per kernel
 
-**Exit:** Performance target met or gap quantified.
+**Exit:** Performance target met or gap quantified. Block dimensions selected based on data.
 
 ---
 
@@ -144,6 +155,7 @@ ti.profiler.print_kernel_profiler_info()
 ## Exit Criteria (Complete)
 
 - [x] Ping-pong buffers implemented (no copy overhead)
+- [x] Memory access patterns verified (coalesced access)
 - [x] Point-wise kernel fusion (2× memory traffic reduction)
 - [x] Generic diffusion kernel consolidated
 - [x] All tests pass

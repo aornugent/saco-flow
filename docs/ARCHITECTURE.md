@@ -487,6 +487,11 @@ for j, i in ti.ndrange((1, n-1), (1, n-1)):
     field[i, j] = ...  # 4*n byte stride between threads
 ```
 
+**Verified patterns (Phase 2 audit):**
+- All physics kernels use `for i, j in ti.ndrange(...)` with `j` as fastest-varying
+- Utility kernels use `for I in ti.grouped(field)` which auto-optimizes access order
+- No strided or uncoalesced patterns found in the codebase
+
 ### Benchmarking Protocol
 
 1. **Warmup:** 10 timesteps (triggers JIT compilation)
