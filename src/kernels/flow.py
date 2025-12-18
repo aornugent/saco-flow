@@ -41,17 +41,18 @@ def compute_flow_directions(
         slope_sum = ti.cast(0.0, DTYPE)
 
         # Compute slope^p to each neighbor, store temporarily
+        # Include boundary neighbors to allow outflow from domain
         slopes = ti.Vector([ti.cast(0.0, DTYPE)] * 8)
         for k in ti.static(range(8)):
             ni = i + NEIGHBOR_DI[k]
             nj = j + NEIGHBOR_DJ[k]
 
-            if mask[ni, nj] == 1:
-                dz = z_center - Z[ni, nj]
-                if dz > 0:  # Downslope
-                    slope = dz / (NEIGHBOR_DIST[k] * dx)
-                    slopes[k] = ti.pow(slope, p)
-                    slope_sum += slopes[k]
+            # Compute slope to all neighbors (including boundary cells)
+            dz = z_center - Z[ni, nj]
+            if dz > 0:  # Downslope
+                slope = dz / (NEIGHBOR_DIST[k] * dx)
+                slopes[k] = ti.pow(slope, p)
+                slope_sum += slopes[k]
 
         # Normalize to fractions or flag as flat
         if slope_sum > MIN_SLOPE_SUM:
