@@ -211,9 +211,4 @@ class TestFields:
         assert h_np[0, 4] == 1.0
 
 
-# Fixture for Taichi initialization
-@pytest.fixture(scope="module")
-def taichi_init():
-    """Initialize Taichi once per test module."""
-    init_taichi(backend="cpu", debug=True)
-    yield
+# Note: taichi_init fixture is provided by conftest.py (session-scoped)
