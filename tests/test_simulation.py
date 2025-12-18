@@ -1,23 +1,15 @@
-"""
-Integration tests for the simulation loop.
-"""
+"""Integration tests for the simulation loop."""
 
 import tempfile
-from pathlib import Path
 
 import numpy as np
 import pytest
 
 from src.config import init_taichi
-from src.simulation import (
-    MassBalance,
-    Simulation,
-    SimulationParams,
-    SimulationState,
-    create_simulation_fields,
-    initialize_tilted_plane,
-    initialize_vegetation,
-)
+from src.params import SimulationParams
+from src.diagnostics import MassBalance
+from src.fields import allocate, initialize_tilted_plane, initialize_vegetation, fill_field
+from src.simulation import Simulation, SimulationState
 from src.output import save_simulation_output, HAS_RASTERIO, HAS_MATPLOTLIB
 
 
@@ -55,7 +47,7 @@ class TestSimulationInitialization:
 
     def test_create_simulation_fields(self, taichi_init):
         """Should create all required fields."""
-        fields = create_simulation_fields(n=32)
+        fields = allocate(n=32)
 
         assert hasattr(fields, "h")
         assert hasattr(fields, "M")
@@ -67,7 +59,7 @@ class TestSimulationInitialization:
 
     def test_initialize_tilted_plane(self, taichi_init):
         """Tilted plane should have correct slope direction."""
-        fields = create_simulation_fields(n=32)
+        fields = allocate(n=32)
         initialize_tilted_plane(fields, slope=0.1, direction="south")
 
         Z_np = fields.Z.to_numpy()
@@ -77,7 +69,7 @@ class TestSimulationInitialization:
 
     def test_initialize_vegetation(self, taichi_init):
         """Vegetation should be initialized with random values."""
-        fields = create_simulation_fields(n=32)
+        fields = allocate(n=32)
         initialize_tilted_plane(fields)
         initialize_vegetation(fields, mean=1.0, std=0.2, seed=42)
 
@@ -95,7 +87,7 @@ class TestSimulationRun:
         """Simulation should complete without errors."""
         params = SimulationParams(n=32)
         sim = Simulation(params)
-        state = sim.initialize(seed=42)
+        sim.initialize(seed=42)
 
         # Run for a short time
         sim.run(years=0.1, check_mass_balance=True, verbose=False)
@@ -120,8 +112,6 @@ class TestSimulationRun:
         params = SimulationParams(n=32)
         sim = Simulation(params)
         state = sim.initialize(seed=42)
-
-        initial_water = state.total_water()
 
         # Run a single rainfall event
         sim.run_rainfall_event(depth=0.02, duration=0.25)
@@ -152,20 +142,13 @@ class TestSimulationRun:
         state = sim.initialize(initial_moisture=0.3, seed=42)
 
         # Add some surface water
-        from src.kernels.utils import fill_field
         fill_field(state.fields.h, 0.01)
-
-        initial_h = state.total_surface_water()
 
         # Run without rainfall
         for _ in range(30):
             sim.step_soil(1.0)
 
-        final_h = state.total_surface_water()
-
-        # Surface water should have decreased (infiltrated or evaporated)
-        # Actually h doesn't change from step_soil, only from rainfall events
-        # But M should have decreased from ET
+        # M should have decreased from ET
         assert state.mass_balance.cumulative_et > 0
 
 

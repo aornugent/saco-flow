@@ -7,7 +7,7 @@ I = α · h · [(P + k_P·W_0)/(P + k_P)] · (1 - M/M_sat)⁺
 
 import taichi as ti
 
-from src.config import DTYPE
+from src.geometry import DTYPE
 
 
 @ti.kernel

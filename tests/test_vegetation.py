@@ -4,7 +4,8 @@ Tests for vegetation dynamics: growth, mortality, dispersal.
 
 import numpy as np
 
-from src.kernels.utils import compute_total, fill_field
+from src.fields import fill_field, copy_field
+from src.diagnostics import compute_total
 from src.kernels.vegetation import (
     compute_equilibrium_moisture,
     compute_vegetation_timestep,

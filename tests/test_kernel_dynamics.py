@@ -32,7 +32,8 @@ from src.kernels.vegetation import (
     mortality_step,
     vegetation_diffusion_step,
 )
-from src.kernels.utils import compute_total, fill_field
+from src.fields import fill_field, copy_field
+from src.diagnostics import compute_total
 
 
 class TestMonodKinetics:
@@ -998,8 +999,6 @@ class TestMFDAnalytical:
             compute_flow_accumulation,
             compute_flow_directions,
         )
-        from src.kernels.utils import fill_field
-
         n = 32
         fields = grid_factory(n=n)
 
@@ -1074,7 +1073,6 @@ class TestMFDAnalytical:
         fields.mask.from_numpy(mask_np)
 
         # Uniform water
-        from src.kernels.utils import fill_field
         fill_field(fields.h, 0.1)
 
         dx = 1.0

@@ -379,7 +379,7 @@ class TestTuringMechanism:
         High vegetation should reduce water flow to downslope neighbors
         (negative nonlocal feedback).
         """
-        from src.kernels.utils import fill_field
+        from src.fields import fill_field
 
         params = SimulationParams(n=32)
         sim = Simulation(params)
@@ -559,7 +559,7 @@ class TestSlopeEffects:
         proportional to flow velocity) on gentle vs steep slopes.
         """
         from src.kernels.flow import compute_cfl_timestep
-        from src.kernels.utils import fill_field
+        from src.fields import fill_field
 
         # Gentle slope
         params = SimulationParams(n=32)

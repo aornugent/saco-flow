@@ -13,13 +13,8 @@ import pytest
 import taichi as ti
 
 from src.config import DTYPE, DefaultParams, get_backend
-from src.kernels.utils import (
-    add_uniform,
-    clamp_field,
-    compute_total,
-    copy_field,
-    fill_field,
-)
+from src.fields import fill_field, copy_field, add_uniform, clamp_field
+from src.diagnostics import compute_total
 
 
 class TestTaichiInit:

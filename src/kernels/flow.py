@@ -7,8 +7,8 @@ proportional to slope^p. Routing uses kinematic wave with CFL limiting.
 
 import taichi as ti
 
-from src.config import DTYPE
-from src.kernels.utils import NEIGHBOR_DI, NEIGHBOR_DIST, NEIGHBOR_DJ, copy_field
+from src.geometry import DTYPE, NEIGHBOR_DI, NEIGHBOR_DJ, NEIGHBOR_DIST
+from src.fields import copy_field
 
 # Flow exponent: 1.0=diffuse, 1.5=default, >5=approaches D8
 FLOW_EXPONENT = 1.5
