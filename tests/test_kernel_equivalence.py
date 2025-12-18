@@ -3,15 +3,16 @@ Tests for kernel equivalence: fused vs naive implementations.
 
 These tests verify that optimized (fused) kernels produce identical results
 to the naive (separate) implementations within floating-point tolerance.
+
+Note: Diffusion now uses a single generic laplacian_diffusion_step from
+geometry.py for both soil and vegetation. The duplicate kernels have been
+removed as part of the Phase 4 consolidation.
 """
 
 import numpy as np
-import pytest
 
-from src.fields import allocate, fill_field
-from src.geometry import laplacian_diffusion_step
+from src.fields import fill_field
 from src.kernels.soil import (
-    diffusion_step,
     et_leakage_step_fused,
     evapotranspiration_step,
     leakage_step,
@@ -22,7 +23,6 @@ from src.kernels.vegetation import (
     growth_mortality_step_fused,
     growth_step,
     mortality_step,
-    vegetation_diffusion_step,
     vegetation_step,
     vegetation_step_naive,
 )
@@ -123,41 +123,6 @@ class TestSoilKernelEquivalence:
         assert abs(et_naive - et_fused) < 1e-5 * max(et_naive, 1e-10)
         assert abs(leak_naive - leak_fused) < 1e-5 * max(leak_naive, 1e-10)
 
-    def test_generic_diffusion_matches_soil_diffusion(self, grid_factory, tilted_plane):
-        """Generic laplacian_diffusion_step should match soil diffusion_step."""
-        n = 32
-        D_M, dx, dt = 0.01, 1.0, 0.1
-
-        # Setup for soil-specific diffusion
-        fields_specific = grid_factory(n=n)
-        tilted_plane(fields_specific)
-        fill_field(fields_specific.M, 0.2)
-
-        # Setup for generic diffusion (same initial state)
-        fields_generic = grid_factory(n=n)
-        tilted_plane(fields_generic)
-        fill_field(fields_generic.M, 0.2)
-
-        # Run soil-specific diffusion
-        diffusion_step(
-            fields_specific.M, fields_specific.M_new, fields_specific.mask,
-            D_M, dx, dt
-        )
-
-        # Run generic diffusion
-        laplacian_diffusion_step(
-            fields_generic.M, fields_generic.M_new, fields_generic.mask,
-            D_M, dx, dt
-        )
-
-        # Compare results
-        M_specific = fields_specific.M_new.to_numpy()
-        M_generic = fields_generic.M_new.to_numpy()
-
-        assert np.allclose(M_specific, M_generic, rtol=1e-6, atol=1e-10), \
-            f"Diffusion outputs differ: max diff = {np.max(np.abs(M_specific - M_generic))}"
-
-
 class TestVegetationKernelEquivalence:
     """Test fused vegetation kernels match naive implementations."""
 
@@ -250,40 +215,6 @@ class TestVegetationKernelEquivalence:
 
         assert abs(growth_naive - growth_fused) < 1e-5 * max(growth_naive, 1e-10)
         assert abs(mort_naive - mort_fused) < 1e-5 * max(mort_naive, 1e-10)
-
-    def test_generic_diffusion_matches_vegetation_diffusion(self, grid_factory, tilted_plane):
-        """Generic laplacian_diffusion_step should match vegetation diffusion."""
-        n = 32
-        D_P, dx, dt = 0.01, 1.0, 1.0
-
-        # Setup for vegetation-specific diffusion
-        fields_specific = grid_factory(n=n)
-        tilted_plane(fields_specific)
-        fill_field(fields_specific.P, 0.5)
-
-        # Setup for generic diffusion
-        fields_generic = grid_factory(n=n)
-        tilted_plane(fields_generic)
-        fill_field(fields_generic.P, 0.5)
-
-        # Run vegetation-specific diffusion
-        vegetation_diffusion_step(
-            fields_specific.P, fields_specific.P_new, fields_specific.mask,
-            D_P, dx, dt
-        )
-
-        # Run generic diffusion
-        laplacian_diffusion_step(
-            fields_generic.P, fields_generic.P_new, fields_generic.mask,
-            D_P, dx, dt
-        )
-
-        # Compare results
-        P_specific = fields_specific.P_new.to_numpy()
-        P_generic = fields_generic.P_new.to_numpy()
-
-        assert np.allclose(P_specific, P_generic, rtol=1e-6, atol=1e-10), \
-            f"Diffusion outputs differ: max diff = {np.max(np.abs(P_specific - P_generic))}"
 
 
 class TestMultiStepEquivalence:

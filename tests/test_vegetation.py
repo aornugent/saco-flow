@@ -6,12 +6,12 @@ import numpy as np
 
 from src.diagnostics import compute_total
 from src.fields import fill_field
+from src.geometry import laplacian_diffusion_step
 from src.kernels.vegetation import (
     compute_equilibrium_moisture,
     compute_vegetation_timestep,
     growth_step,
     mortality_step,
-    vegetation_diffusion_step,
     vegetation_step,
 )
 
@@ -190,7 +190,7 @@ class TestDispersal:
         dt = compute_vegetation_timestep(D_P, dx, cfl=0.2)
 
         for _ in range(10):
-            vegetation_diffusion_step(fields.P, fields.P_new, fields.mask, D_P, dx, dt)
+            laplacian_diffusion_step(fields.P, fields.P_new, fields.mask, D_P, dx, dt)
             fields.P.from_numpy(fields.P_new.to_numpy())
 
         P_after = compute_total(fields.P, fields.mask)
@@ -217,7 +217,7 @@ class TestDispersal:
         dt = compute_vegetation_timestep(D_P, dx, cfl=0.2)
 
         for _ in range(50):
-            vegetation_diffusion_step(fields.P, fields.P_new, fields.mask, D_P, dx, dt)
+            laplacian_diffusion_step(fields.P, fields.P_new, fields.mask, D_P, dx, dt)
             fields.P.from_numpy(fields.P_new.to_numpy())
 
         P_final = fields.P.to_numpy()
@@ -241,7 +241,7 @@ class TestDispersal:
         dt = compute_vegetation_timestep(D_P, dx, cfl=0.25)
 
         for _ in range(100):
-            vegetation_diffusion_step(fields.P, fields.P_new, fields.mask, D_P, dx, dt)
+            laplacian_diffusion_step(fields.P, fields.P_new, fields.mask, D_P, dx, dt)
             fields.P.from_numpy(fields.P_new.to_numpy())
 
         P_final = fields.P.to_numpy()

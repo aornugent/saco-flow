@@ -6,9 +6,9 @@ import numpy as np
 
 from src.diagnostics import compute_total
 from src.fields import fill_field
+from src.geometry import laplacian_diffusion_step
 from src.kernels.soil import (
     compute_diffusion_timestep,
-    diffusion_step,
     evapotranspiration_step,
     leakage_step,
     soil_moisture_step,
@@ -188,7 +188,7 @@ class TestDiffusion:
         dt = compute_diffusion_timestep(D_M, dx, cfl=0.2)
 
         for _ in range(10):
-            diffusion_step(fields.M, fields.M_new, fields.mask, D_M, dx, dt)
+            laplacian_diffusion_step(fields.M, fields.M_new, fields.mask, D_M, dx, dt)
             # Copy back
             fields.M.from_numpy(fields.M_new.to_numpy())
 
@@ -217,7 +217,7 @@ class TestDiffusion:
         dt = compute_diffusion_timestep(D_M, dx, cfl=0.2)
 
         for _ in range(50):
-            diffusion_step(fields.M, fields.M_new, fields.mask, D_M, dx, dt)
+            laplacian_diffusion_step(fields.M, fields.M_new, fields.mask, D_M, dx, dt)
             fields.M.from_numpy(fields.M_new.to_numpy())
 
         M_final = fields.M.to_numpy()
@@ -241,7 +241,7 @@ class TestDiffusion:
         dt = compute_diffusion_timestep(D_M, dx, cfl=0.25)
 
         for _ in range(100):
-            diffusion_step(fields.M, fields.M_new, fields.mask, D_M, dx, dt)
+            laplacian_diffusion_step(fields.M, fields.M_new, fields.mask, D_M, dx, dt)
             fields.M.from_numpy(fields.M_new.to_numpy())
 
         M_final = fields.M.to_numpy()

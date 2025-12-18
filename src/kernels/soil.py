@@ -5,10 +5,11 @@ Soil moisture dynamics: ET, deep leakage, and lateral diffusion.
 
 (Infiltration handled separately in infiltration.py)
 
-Provides both naive (separate) and fused kernels:
-- Naive: evapotranspiration_step, leakage_step, diffusion_step
-- Fused: et_leakage_step_fused (2x less memory traffic for point-wise ops)
+Provides both naive (separate) and fused kernels for point-wise operations:
+- Naive: evapotranspiration_step, leakage_step (separate calls)
+- Fused: et_leakage_step_fused (2x less memory traffic)
 
+Diffusion uses the generic laplacian_diffusion_step from geometry.py.
 The fused kernel is used by default. Naive kernels are kept for regression testing.
 """
 
@@ -158,47 +159,6 @@ def et_leakage_step_fused(
     return ti.Vector([total_et, total_leakage])
 
 
-@ti.kernel
-def diffusion_step(
-    M: ti.template(),
-    M_new: ti.template(),
-    mask: ti.template(),
-    D_M: DTYPE,
-    dx: DTYPE,
-    dt: DTYPE,
-):
-    """
-    Compute lateral soil moisture diffusion using 5-point Laplacian.
-
-    ∇²M ≈ (M_E + M_W + M_N + M_S - 4·M) / dx²
-
-    Neumann (no-flux) boundary conditions: only include neighbors where mask=1.
-    Uses double buffering (reads from M, writes to M_new).
-    """
-    n = M.shape[0]
-    coeff = D_M * dt / (dx * dx)
-
-    for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
-        if mask[i, j] == 0:
-            M_new[i, j] = M[i, j]
-            continue
-
-        M_local = M[i, j]
-
-        # 5-point Laplacian with Neumann BC
-        laplacian = ti.cast(0.0, DTYPE)
-
-        # Check 4 cardinal neighbors
-        for di, dj in ti.static([(-1, 0), (1, 0), (0, -1), (0, 1)]):
-            ni, nj = i + di, j + dj
-            if mask[ni, nj] == 1:
-                laplacian += M[ni, nj] - M_local
-
-        # Apply diffusion
-        dM = coeff * laplacian
-        M_new[i, j] = ti.max(0.0, M_local + dM)
-
-
 def soil_moisture_step(
     fields: SimpleNamespace,
     E_max: float,
@@ -249,7 +209,9 @@ def soil_moisture_step_naive(
     """
     Naive (unfused) soil moisture step for regression testing.
 
-    Same physics as soil_moisture_step but uses separate kernels.
+    Same physics as soil_moisture_step but uses separate kernels for
+    ET and leakage (more memory traffic). Diffusion uses the same
+    generic laplacian_diffusion_step as the fused version.
     """
     # Separate ET and leakage calls (more memory traffic)
     total_et = evapotranspiration_step(
@@ -257,8 +219,8 @@ def soil_moisture_step_naive(
     )
     total_leakage = leakage_step(fields.M, fields.mask, L_max, M_sat, dt)
 
-    # Use local diffusion_step (identical to generic)
-    diffusion_step(fields.M, fields.M_new, fields.mask, D_M, dx, dt)
+    # Diffusion: uses generic kernel from geometry.py
+    laplacian_diffusion_step(fields.M, fields.M_new, fields.mask, D_M, dx, dt)
 
     swap_buffers(fields, "M")
 

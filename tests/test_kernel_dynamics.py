@@ -15,13 +15,14 @@ Key tests:
 import math
 
 import numpy as np
-import pytest
 
 from src.config import DefaultParams
+from src.diagnostics import compute_total
+from src.fields import fill_field
+from src.geometry import laplacian_diffusion_step
 from src.kernels.infiltration import infiltration_step
 from src.kernels.soil import (
     compute_diffusion_timestep,
-    diffusion_step,
     evapotranspiration_step,
     leakage_step,
 )
@@ -30,10 +31,7 @@ from src.kernels.vegetation import (
     compute_vegetation_timestep,
     growth_step,
     mortality_step,
-    vegetation_diffusion_step,
 )
-from src.fields import fill_field, copy_field
-from src.diagnostics import compute_total
 
 
 class TestMonodKinetics:
@@ -59,7 +57,6 @@ class TestMonodKinetics:
         fill_field(fields.M, k_M)
         fill_field(fields.P, 0.0)  # No vegetation enhancement
 
-        M_before = compute_total(fields.M, fields.mask)
         n_active = np.sum(fields.mask.to_numpy() == 1)
 
         total_et = evapotranspiration_step(
@@ -474,7 +471,7 @@ class TestAnalyticalSolutions:
         # Run diffusion
         n_steps = 50
         for _ in range(n_steps):
-            diffusion_step(fields.M, fields.M_new, fields.mask, D_M, dx, dt)
+            laplacian_diffusion_step(fields.M, fields.M_new, fields.mask, D_M, dx, dt)
             fields.M.from_numpy(fields.M_new.to_numpy())
 
         var_final = compute_variance(fields.M)
