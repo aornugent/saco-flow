@@ -837,10 +837,11 @@ class TestMFDAnalytical:
     def test_single_cell_water_distribution(self, grid_factory):
         """
         Single cell water pulse on diagonal plane should distribute according
-        to flow fractions after one routing step.
+        to flow fractions after ONE routing step.
 
         Initial: h=1.0 at center cell only
-        After routing: neighboring cells receive water proportional to flow_frac
+        After ONE routing step: source cell loses water, immediate neighbors
+        receive water proportional to flow_frac (before cascading occurs).
         """
         from src.kernels.flow import (
             FLOW_EXPONENT,
@@ -864,7 +865,7 @@ class TestMFDAnalytical:
 
         # Water at single cell
         center_i, center_j = 7, 7
-        h_initial = 1.0
+        h_initial = 0.1  # Use smaller initial depth for more stable routing
         h_np = np.zeros((n, n), dtype=np.float32)
         h_np[center_i, center_j] = h_initial
         fields.h.from_numpy(h_np)
@@ -880,40 +881,53 @@ class TestMFDAnalytical:
         frac_SE = frac[center_i, center_j, 1]
         frac_S = frac[center_i, center_j, 2]
 
-        # Route with long timestep to move all water
-        dt = 10.0  # Long enough to drain the cell
+        # Use a single routing step with CFL-appropriate timestep
+        # This prevents cascading and tests the distribution directly
+        dt = 0.01  # Small timestep for single-step test
         manning_n = 0.03
 
-        # Multiple routing steps to ensure water moves
-        for _ in range(5):
-            route_surface_water(
-                fields.h, fields.Z, fields.flow_frac, fields.mask,
-                fields.q_out, dx, dt, manning_n
-            )
+        route_surface_water(
+            fields.h, fields.Z, fields.flow_frac, fields.mask,
+            fields.q_out, dx, dt, manning_n
+        )
 
         h_final = fields.h.to_numpy()
 
-        # Check that water moved to correct neighbors
-        # Water at E neighbor (center_i, center_j+1)
-        h_E = h_final[center_i, center_j + 1]
-        # Water at SE neighbor (center_i+1, center_j+1)
-        h_SE = h_final[center_i + 1, center_j + 1]
-        # Water at S neighbor (center_i+1, center_j)
-        h_S = h_final[center_i + 1, center_j]
+        # Water that left source cell
+        h_remaining = h_final[center_i, center_j]
+        water_moved = h_initial - h_remaining
 
-        # Total water that moved (may have cascaded further)
-        total_moved = h_E + h_SE + h_S
-        if total_moved > 0.1:  # If significant water moved
-            # Check relative distribution matches flow fractions
-            ratio_E = h_E / total_moved
-            ratio_SE = h_SE / total_moved
-            ratio_S = h_S / total_moved
+        if water_moved > 1e-6:  # If any water moved
+            # Check neighbors received water in correct proportions
+            h_E = h_final[center_i, center_j + 1]
+            h_SE = h_final[center_i + 1, center_j + 1]
+            h_S = h_final[center_i + 1, center_j]
 
-            # Relaxed tolerance due to cascading effects
-            tol = 0.2
-            assert abs(ratio_E - frac_E) < tol or h_E < 0.01, (
-                f"E ratio: expected ~{frac_E:.2f}, got {ratio_E:.2f}"
+            total_received = h_E + h_SE + h_S
+
+            # Total received should equal water moved (mass conservation)
+            assert abs(total_received - water_moved) < 1e-6, (
+                f"Mass not conserved in single step: moved={water_moved:.6f}, "
+                f"received={total_received:.6f}"
             )
+
+            # Check relative distribution matches flow fractions
+            if total_received > 1e-8:
+                ratio_E = h_E / total_received
+                ratio_SE = h_SE / total_received
+                ratio_S = h_S / total_received
+
+                # Tighter tolerance since we're testing single-step distribution
+                tol = 0.05
+                assert abs(ratio_E - frac_E) < tol, (
+                    f"E ratio: expected {frac_E:.4f}, got {ratio_E:.4f}"
+                )
+                assert abs(ratio_SE - frac_SE) < tol, (
+                    f"SE ratio: expected {frac_SE:.4f}, got {ratio_SE:.4f}"
+                )
+                assert abs(ratio_S - frac_S) < tol, (
+                    f"S ratio: expected {frac_S:.4f}, got {ratio_S:.4f}"
+                )
 
     def test_uniform_slope_flow_fractions_analytical(self, grid_factory):
         """

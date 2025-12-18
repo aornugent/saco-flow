@@ -236,9 +236,4 @@ class TestSimulationParams:
         assert state.dx == 2.0
 
 
-# Fixture for Taichi initialization (reuse from conftest if available)
-@pytest.fixture(scope="module")
-def taichi_init():
-    """Initialize Taichi once per test module."""
-    init_taichi(backend="cpu", debug=True)
-    yield
+# Note: taichi_init fixture is provided by conftest.py (session-scoped)

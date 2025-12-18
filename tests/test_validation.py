@@ -9,6 +9,9 @@ Verify that the integrated system produces correct emergent behavior:
 5. Turing instability mechanism validation
 
 These tests verify the SYSTEM as a whole, not individual kernels.
+
+Many of these tests run multi-year simulations and are marked with @pytest.mark.slow.
+Run with `pytest -m "not slow"` to skip them in quick CI runs.
 """
 
 import math
@@ -18,6 +21,9 @@ import pytest
 
 from src.config import init_taichi, DefaultParams
 from src.simulation import Simulation, SimulationParams
+
+# Register slow marker
+pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
 
 class TestLongRunStability:
@@ -79,6 +85,7 @@ class TestLongRunStability:
         # Vegetation: P >= 0
         assert np.all(P[interior] >= 0), f"Negative vegetation: min={P[interior].min()}"
 
+    @pytest.mark.slow
     def test_mass_conservation_over_multiple_years(self, taichi_init):
         """Mass balance error should remain small over multi-year runs."""
         params = SimulationParams(n=32)
@@ -92,6 +99,7 @@ class TestLongRunStability:
         error = sim.check_mass_balance()
         assert error < 1e-3, f"Mass balance error after 2 years: {error:.2e}"
 
+    @pytest.mark.slow
     def test_no_numerical_drift_five_years(self, taichi_init):
         """
         System should not show unbounded growth or decay over 5 years.
@@ -122,12 +130,15 @@ class TestLongRunStability:
         )
 
 
+@pytest.mark.slow
 class TestPatternEmergence:
     """
     Verify that spatial patterns emerge from near-uniform initial conditions.
 
     The Turing instability should cause initially uniform vegetation
     to self-organize into spatial patterns (bands, spots, labyrinths).
+
+    All tests in this class are slow (run multi-year simulations).
     """
 
     def test_vegetation_heterogeneity_increases(self, taichi_init):
@@ -227,12 +238,15 @@ class TestPatternEmergence:
         )
 
 
+@pytest.mark.slow
 class TestPatternWavelength:
     """
     Verify that emerging patterns have physically reasonable wavelengths.
 
     The characteristic wavelength should be related to the
     competition between local facilitation and nonlocal competition.
+
+    All tests in this class are slow (run multi-year simulations on larger grids).
     """
 
     def test_fft_detects_dominant_scale(self, taichi_init):
@@ -378,39 +392,41 @@ class TestTuringMechanism:
         """
         High vegetation should reduce water flow to downslope neighbors
         (negative nonlocal feedback).
+
+        More vegetation → more infiltration → less surface runoff reaching boundaries.
         """
         from src.fields import fill_field
 
         params = SimulationParams(n=32)
-        sim = Simulation(params)
-        sim.initialize(initial_moisture=0.0, seed=42)
 
         # Test 1: Low vegetation - more runoff
-        fill_field(sim.state.fields.P, 0.1)
-        fill_field(sim.state.fields.h, 0.05)
-        fill_field(sim.state.fields.M, 0.0)
+        sim_low = Simulation(params)
+        sim_low.initialize(initial_moisture=0.0, seed=42)
+        fill_field(sim_low.state.fields.P, 0.1)  # Low vegetation
+        fill_field(sim_low.state.fields.h, 0.05)
+        fill_field(sim_low.state.fields.M, 0.0)
 
-        h_before_low_veg = sim.state.total_surface_water()
-        sim.run_rainfall_event(depth=0.0, duration=1.0)  # Just drain
-        h_after_low_veg = sim.state.total_surface_water()
-        outflow_low_veg = sim.state.mass_balance.cumulative_outflow
-
-        # Reset
-        sim.state.mass_balance.cumulative_outflow = 0.0
+        sim_low.run_rainfall_event(depth=0.0, duration=1.0)  # Just drain
+        outflow_low_veg = sim_low.state.mass_balance.cumulative_outflow
 
         # Test 2: High vegetation - less runoff
-        fill_field(sim.state.fields.P, 5.0)
-        fill_field(sim.state.fields.h, 0.05)
-        fill_field(sim.state.fields.M, 0.0)
+        sim_high = Simulation(params)
+        sim_high.initialize(initial_moisture=0.0, seed=42)
+        fill_field(sim_high.state.fields.P, 5.0)  # High vegetation
+        fill_field(sim_high.state.fields.h, 0.05)
+        fill_field(sim_high.state.fields.M, 0.0)
 
-        sim.run_rainfall_event(depth=0.0, duration=1.0)  # Just drain
-        outflow_high_veg = sim.state.mass_balance.cumulative_outflow
+        sim_high.run_rainfall_event(depth=0.0, duration=1.0)  # Just drain
+        outflow_high_veg = sim_high.state.mass_balance.cumulative_outflow
 
         # High vegetation should have less boundary outflow
         # because more water infiltrates locally
-        # Note: This test may need adjustment based on actual parameter values
-        # The key is that infiltration is enhanced by vegetation
+        assert outflow_high_veg < outflow_low_veg, (
+            f"High vegetation should reduce runoff. "
+            f"Low veg outflow: {outflow_low_veg:.6f}, High veg outflow: {outflow_high_veg:.6f}"
+        )
 
+    @pytest.mark.slow
     def test_instability_amplifies_perturbations(self, taichi_init):
         """
         Small perturbations from uniform state should grow over time.
@@ -443,9 +459,12 @@ class TestTuringMechanism:
         )
 
 
+@pytest.mark.slow
 class TestParameterSensitivity:
     """
     Verify system responds appropriately to parameter changes.
+
+    All tests in this class are slow (run multi-year simulations multiple times).
     """
 
     def test_higher_rainfall_increases_vegetation(self, taichi_init):
@@ -525,9 +544,12 @@ class TestParameterSensitivity:
         )
 
 
+@pytest.mark.slow
 class TestSlopeEffects:
     """
     Verify that slope affects pattern formation and water redistribution.
+
+    Some tests in this class are slow (run multi-year simulations).
     """
 
     def test_water_accumulates_downslope(self, taichi_init):
@@ -595,9 +617,12 @@ class TestSlopeEffects:
         )
 
 
+@pytest.mark.slow
 class TestEquilibriumStates:
     """
     Test approach to equilibrium states.
+
+    All tests in this class are slow (run multi-year simulations).
     """
 
     def test_system_approaches_steady_state(self, taichi_init):
@@ -702,9 +727,4 @@ class TestEquilibriumStates:
         )
 
 
-# Fixture for Taichi initialization
-@pytest.fixture(scope="module")
-def taichi_init():
-    """Initialize Taichi once per test module."""
-    init_taichi(backend="cpu", debug=True)
-    yield
+# Note: taichi_init fixture is provided by conftest.py (session-scoped)

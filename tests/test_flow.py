@@ -350,3 +350,104 @@ class TestCFLTimestep:
         h_final = fields.h.to_numpy()
         assert not np.any(np.isnan(h_final)), "NaN values in h"
         assert not np.any(h_final < -1e-10), "Negative values in h"
+
+
+class TestBoundaryOutflow:
+    """Test that boundary outflow tracking is accurate."""
+
+    def test_boundary_outflow_matches_mass_loss(self, grid_factory, tilted_plane):
+        """
+        Boundary outflow returned by route_surface_water should match
+        the actual mass loss from the domain.
+
+        On a tilted plane, water flows to boundary and exits. The returned
+        outflow value should account for this exactly.
+        """
+        n = 32
+        fields = grid_factory(n=n)
+        tilted_plane(fields, slope=0.1, direction="south")
+
+        # Uniform initial water
+        h_initial = 0.02
+        fill_field(fields.h, h_initial)
+
+        compute_flow_directions(
+            fields.Z, fields.mask, fields.flow_frac, 1.0, FLOW_EXPONENT
+        )
+
+        initial_mass = compute_total(fields.h, fields.mask)
+
+        dx = DefaultParams.DX
+        manning_n = DefaultParams.MANNING_N
+        total_reported_outflow = 0.0
+
+        # Route until drained
+        for _ in range(200):
+            dt = compute_cfl_timestep(
+                fields.h, fields.Z, fields.flow_frac, fields.mask,
+                dx, manning_n, cfl=0.5
+            )
+            if dt == float("inf"):
+                break
+            dt = min(dt, 0.5)
+
+            boundary_out = route_surface_water(
+                fields.h, fields.Z, fields.flow_frac, fields.mask,
+                fields.q_out, dx, dt, manning_n
+            )
+            total_reported_outflow += boundary_out
+
+        final_mass = compute_total(fields.h, fields.mask)
+        actual_mass_loss = initial_mass - final_mass
+
+        # Reported outflow should match actual mass loss
+        assert abs(total_reported_outflow - actual_mass_loss) < 1e-5, (
+            f"Boundary outflow mismatch: reported={total_reported_outflow:.6f}, "
+            f"actual loss={actual_mass_loss:.6f}"
+        )
+
+    def test_all_water_eventually_drains(self, grid_factory, tilted_plane):
+        """
+        On a tilted plane with no infiltration, all water should eventually
+        exit through boundaries.
+        """
+        n = 32
+        fields = grid_factory(n=n)
+        tilted_plane(fields, slope=0.05, direction="south")
+
+        fill_field(fields.h, 0.01)
+
+        compute_flow_directions(
+            fields.Z, fields.mask, fields.flow_frac, 1.0, FLOW_EXPONENT
+        )
+
+        initial_mass = compute_total(fields.h, fields.mask)
+
+        dx = DefaultParams.DX
+        manning_n = DefaultParams.MANNING_N
+        total_outflow = 0.0
+
+        # Route for many steps
+        for _ in range(500):
+            dt = compute_cfl_timestep(
+                fields.h, fields.Z, fields.flow_frac, fields.mask,
+                dx, manning_n, cfl=0.5
+            )
+            if dt == float("inf"):
+                break
+            dt = min(dt, 0.5)
+
+            boundary_out = route_surface_water(
+                fields.h, fields.Z, fields.flow_frac, fields.mask,
+                fields.q_out, dx, dt, manning_n
+            )
+            total_outflow += boundary_out
+
+        final_mass = compute_total(fields.h, fields.mask)
+
+        # Most water should have drained (>99%)
+        drained_fraction = total_outflow / initial_mass
+        assert drained_fraction > 0.99, (
+            f"Water didn't fully drain: {drained_fraction:.1%} drained, "
+            f"remaining={final_mass:.6f}"
+        )
