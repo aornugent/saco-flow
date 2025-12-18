@@ -85,3 +85,50 @@ def get_neighbor_distance(k: int, dx: ti.f32) -> ti.f32:
         Distance in meters
     """
     return NEIGHBOR_DIST[k] * dx
+
+
+@ti.kernel
+def laplacian_diffusion_step(
+    field: ti.template(),
+    field_new: ti.template(),
+    mask: ti.template(),
+    D: DTYPE,
+    dx: DTYPE,
+    dt: DTYPE,
+):
+    """
+    Apply diffusion using 5-point Laplacian stencil.
+
+    ∂φ/∂t = D·∇²φ
+
+    Uses Neumann (no-flux) boundary conditions: only includes neighbors where mask=1.
+    Double buffered: reads from field, writes to field_new.
+
+    Args:
+        field: Source field (read)
+        field_new: Destination field (write)
+        mask: Active cell mask (1=active, 0=inactive)
+        D: Diffusion coefficient [m²/day]
+        dx: Cell size [m]
+        dt: Timestep [days]
+    """
+    n = field.shape[0]
+    coeff = D * dt / (dx * dx)
+
+    for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
+        if mask[i, j] == 0:
+            field_new[i, j] = field[i, j]
+            continue
+
+        local_val = field[i, j]
+
+        # 5-point Laplacian with Neumann BC
+        laplacian = ti.cast(0.0, DTYPE)
+        for di, dj in ti.static([(-1, 0), (1, 0), (0, -1), (0, 1)]):
+            ni, nj = i + di, j + dj
+            if mask[ni, nj] == 1:
+                laplacian += field[ni, nj] - local_val
+
+        # Apply diffusion with non-negativity constraint
+        d_val = coeff * laplacian
+        field_new[i, j] = ti.max(0.0, local_val + d_val)

@@ -7,6 +7,12 @@ Where:
 - G(M) = g_max · M/(M + k_G)  -- Monod growth kinetics
 - μ·P                         -- constant mortality
 - D_P·∇²P                     -- seed dispersal diffusion
+
+Provides both naive (separate) and fused kernels:
+- Naive: growth_step, mortality_step, vegetation_diffusion_step
+- Fused: growth_mortality_step_fused (2x less memory traffic for point-wise ops)
+
+The fused kernel is used by default. Naive kernels are kept for regression testing.
 """
 
 from types import SimpleNamespace
@@ -14,7 +20,7 @@ from types import SimpleNamespace
 import taichi as ti
 
 from src.fields import swap_buffers
-from src.geometry import DTYPE
+from src.geometry import DTYPE, laplacian_diffusion_step
 
 
 @ti.kernel
@@ -94,6 +100,61 @@ def mortality_step(
 
 
 @ti.kernel
+def growth_mortality_step_fused(
+    P: ti.template(),
+    M: ti.template(),
+    mask: ti.template(),
+    g_max: DTYPE,
+    k_G: DTYPE,
+    mu: DTYPE,
+    dt: DTYPE,
+) -> ti.types.vector(2, DTYPE):
+    """
+    Fused growth and mortality step (2x less memory traffic).
+
+    Applies growth first, then mortality (matching naive sequential behavior):
+        1. P_grown = P + G(M)·P·dt  where G(M) = g_max · M / (M + k_G)
+        2. P_final = P_grown - μ·P_grown·dt
+
+    Returns [total_growth, total_mortality] for tracking.
+    """
+    total_growth = ti.cast(0.0, DTYPE)
+    total_mortality = ti.cast(0.0, DTYPE)
+    n = P.shape[0]
+
+    for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
+        if mask[i, j] == 0:
+            continue
+
+        P_local = P[i, j]
+        if P_local <= 0:
+            continue
+
+        M_local = M[i, j]
+
+        # Monod growth rate (0 if no moisture)
+        growth_rate = ti.cast(0.0, DTYPE)
+        if M_local > 0:
+            growth_rate = g_max * M_local / (M_local + k_G)
+
+        # Growth applied first
+        growth = growth_rate * P_local * dt
+        P_after_growth = P_local + growth
+
+        # Mortality applied to grown value (matches naive sequential behavior)
+        mortality = mu * P_after_growth * dt
+        mortality = ti.min(mortality, P_after_growth)  # Can't lose more than exists
+
+        # Single write to P
+        P[i, j] = P_after_growth - mortality
+
+        ti.atomic_add(total_growth, growth)
+        ti.atomic_add(total_mortality, mortality)
+
+    return ti.Vector([total_growth, total_mortality])
+
+
+@ti.kernel
 def vegetation_diffusion_step(
     P: ti.template(),
     P_new: ti.template(),
@@ -141,19 +202,49 @@ def vegetation_step(
     """
     Combined vegetation update: growth, mortality, dispersal.
 
+    Uses fused kernel for growth+mortality (2x less memory traffic) and
+    generic laplacian diffusion.
+
     Uses ping-pong buffering: after this call, fields.P holds the updated
     vegetation biomass (buffers are swapped, no copy needed).
 
     Returns (total_growth, total_mortality) for tracking.
     """
-    # Growth and mortality modify P in-place (point-wise operations)
+    # Fused growth+mortality: single read/write per cell (point-wise, in-place)
+    totals = growth_mortality_step_fused(
+        fields.P, fields.M, fields.mask, g_max, k_G, mu, dt
+    )
+
+    # Diffusion: reads P, writes P_new (stencil operation)
+    laplacian_diffusion_step(fields.P, fields.P_new, fields.mask, D_P, dx, dt)
+
+    # Swap buffers (O(1) pointer swap, not O(n²) copy)
+    swap_buffers(fields, "P")
+
+    return float(totals[0]), float(totals[1])
+
+
+def vegetation_step_naive(
+    fields: SimpleNamespace,
+    g_max: float,
+    k_G: float,
+    mu: float,
+    D_P: float,
+    dx: float,
+    dt: float,
+) -> tuple[float, float]:
+    """
+    Naive (unfused) vegetation step for regression testing.
+
+    Same physics as vegetation_step but uses separate kernels.
+    """
+    # Separate growth and mortality calls (more memory traffic)
     total_growth = growth_step(fields.P, fields.M, fields.mask, g_max, k_G, dt)
     total_mortality = mortality_step(fields.P, fields.mask, mu, dt)
 
-    # Diffusion uses double buffering: reads P, writes P_new
+    # Use local vegetation_diffusion_step (identical to generic)
     vegetation_diffusion_step(fields.P, fields.P_new, fields.mask, D_P, dx, dt)
 
-    # Swap buffers (O(1) pointer swap, not O(n²) copy)
     swap_buffers(fields, "P")
 
     return float(total_growth), float(total_mortality)
