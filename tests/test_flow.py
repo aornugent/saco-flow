@@ -12,7 +12,8 @@ from src.kernels.flow import (
     compute_flow_directions,
     route_surface_water,
 )
-from src.kernels.utils import compute_total, fill_field
+from src.fields import fill_field, copy_field
+from src.diagnostics import compute_total
 
 
 class TestFlowDirections:

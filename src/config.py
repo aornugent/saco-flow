@@ -13,7 +13,8 @@ import subprocess
 
 import taichi as ti
 
-DTYPE = ti.f32
+# Re-export DTYPE from geometry for backward compatibility
+from src.geometry import DTYPE
 
 
 def get_backend() -> str:

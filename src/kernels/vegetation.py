@@ -11,8 +11,8 @@ Where:
 
 import taichi as ti
 
-from src.config import DTYPE
-from src.kernels.utils import copy_field
+from src.geometry import DTYPE
+from src.fields import copy_field
 
 
 @ti.kernel
