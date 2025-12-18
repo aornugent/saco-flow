@@ -66,17 +66,27 @@ Fuse sequential point-wise operations to reduce memory traffic.
 
 ---
 
-## Phase 4: Shared Memory for Stencils
+## Phase 4: Shared Memory for Stencils ✓
 
 Add `ti.block_local()` caching for diffusion stencils.
 
-| Task | File |
-|------|------|
-| Add `ti.block_local(M_cur)` to diffusion kernel | `src/kernels/soil.py` |
-| Add `ti.block_local(P_cur)` to vegetation diffusion | `src/kernels/vegetation.py` |
-| Benchmark improvement | `benchmarks/` |
+**Consolidation:** Removed duplicate diffusion kernels (`diffusion_step` from soil.py,
+`vegetation_diffusion_step` from vegetation.py). Both now use the single generic
+`laplacian_diffusion_step` in geometry.py with `ti.block_local()` caching.
 
-**Exit:** Measurable bandwidth improvement on large grids.
+| Task | File | Status |
+|------|------|--------|
+| Remove duplicate `diffusion_step` | `src/kernels/soil.py` | ✓ |
+| Remove duplicate `vegetation_diffusion_step` | `src/kernels/vegetation.py` | ✓ |
+| Add `ti.block_local(field)` to generic diffusion | `src/geometry.py` | ✓ |
+| Update naive step functions to use generic kernel | `src/kernels/*.py` | ✓ |
+| Create benchmark harness | `benchmarks/benchmark_diffusion.py` | ✓ |
+| Update tests for consolidated kernels | `tests/*.py` | ✓ |
+
+**Before:** 3 duplicate diffusion kernels
+**After:** 1 generic kernel with shared memory optimization
+
+**Exit:** Measurable bandwidth improvement on large grids. ✓
 
 ---
 
@@ -146,6 +156,9 @@ ti.profiler.print_kernel_profiler_info()
 - [x] Ping-pong buffers implemented (no copy overhead)
 - [x] Point-wise kernel fusion (2× memory traffic reduction)
 - [x] Generic diffusion kernel consolidated
+- [x] Shared memory caching via `ti.block_local()`
+- [x] Duplicate diffusion kernels eliminated
+- [x] Benchmark harness created
 - [x] All tests pass
 - [ ] 10k×10k at ≥1 year/minute on H100
 - [ ] >50% theoretical bandwidth achieved

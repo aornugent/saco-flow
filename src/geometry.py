@@ -104,6 +104,9 @@ def laplacian_diffusion_step(
     Uses Neumann (no-flux) boundary conditions: only includes neighbors where mask=1.
     Double buffered: reads from field, writes to field_new.
 
+    Uses ti.block_local() to cache stencil reads in shared memory on GPU,
+    reducing global memory traffic for neighbor accesses.
+
     Args:
         field: Source field (read)
         field_new: Destination field (write)
@@ -112,6 +115,9 @@ def laplacian_diffusion_step(
         dx: Cell size [m]
         dt: Timestep [days]
     """
+    # Cache field in shared memory for stencil reads (GPU optimization)
+    ti.block_local(field)
+
     n = field.shape[0]
     coeff = D * dt / (dx * dx)
 

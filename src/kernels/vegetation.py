@@ -8,10 +8,11 @@ Where:
 - μ·P                         -- constant mortality
 - D_P·∇²P                     -- seed dispersal diffusion
 
-Provides both naive (separate) and fused kernels:
-- Naive: growth_step, mortality_step, vegetation_diffusion_step
-- Fused: growth_mortality_step_fused (2x less memory traffic for point-wise ops)
+Provides both naive (separate) and fused kernels for point-wise operations:
+- Naive: growth_step, mortality_step (separate calls)
+- Fused: growth_mortality_step_fused (2x less memory traffic)
 
+Diffusion uses the generic laplacian_diffusion_step from geometry.py.
 The fused kernel is used by default. Naive kernels are kept for regression testing.
 """
 
@@ -154,42 +155,6 @@ def growth_mortality_step_fused(
     return ti.Vector([total_growth, total_mortality])
 
 
-@ti.kernel
-def vegetation_diffusion_step(
-    P: ti.template(),
-    P_new: ti.template(),
-    mask: ti.template(),
-    D_P: DTYPE,
-    dx: DTYPE,
-    dt: DTYPE,
-):
-    """
-    Compute seed dispersal via diffusion using 5-point Laplacian.
-
-    Uses Neumann (no-flux) boundary conditions.
-    Double buffered: reads from P, writes to P_new.
-    """
-    n = P.shape[0]
-    coeff = D_P * dt / (dx * dx)
-
-    for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
-        if mask[i, j] == 0:
-            P_new[i, j] = P[i, j]
-            continue
-
-        P_local = P[i, j]
-
-        # 5-point Laplacian with Neumann BC
-        laplacian = ti.cast(0.0, DTYPE)
-        for di, dj in ti.static([(-1, 0), (1, 0), (0, -1), (0, 1)]):
-            ni, nj = i + di, j + dj
-            if mask[ni, nj] == 1:
-                laplacian += P[ni, nj] - P_local
-
-        dP = coeff * laplacian
-        P_new[i, j] = ti.max(0.0, P_local + dP)
-
-
 def vegetation_step(
     fields: SimpleNamespace,
     g_max: float,
@@ -236,14 +201,16 @@ def vegetation_step_naive(
     """
     Naive (unfused) vegetation step for regression testing.
 
-    Same physics as vegetation_step but uses separate kernels.
+    Same physics as vegetation_step but uses separate kernels for
+    growth and mortality (more memory traffic). Diffusion uses the same
+    generic laplacian_diffusion_step as the fused version.
     """
     # Separate growth and mortality calls (more memory traffic)
     total_growth = growth_step(fields.P, fields.M, fields.mask, g_max, k_G, dt)
     total_mortality = mortality_step(fields.P, fields.mask, mu, dt)
 
-    # Use local vegetation_diffusion_step (identical to generic)
-    vegetation_diffusion_step(fields.P, fields.P_new, fields.mask, D_P, dx, dt)
+    # Diffusion: uses generic kernel from geometry.py
+    laplacian_diffusion_step(fields.P, fields.P_new, fields.mask, D_P, dx, dt)
 
     swap_buffers(fields, "P")
 
