@@ -24,15 +24,7 @@ from math import sqrt
 
 import taichi as ti
 
-# =============================================================================
-# Data type
-# =============================================================================
-
 DTYPE = ti.f32
-
-# =============================================================================
-# Neighbor indexing (compile-time constants)
-# =============================================================================
 
 # Number of neighbors in 8-connectivity
 NUM_NEIGHBORS: int = 8
@@ -49,11 +41,6 @@ NEIGHBOR_DJ = ti.Vector([1, 1, 0, -1, -1, -1, 0, 1])
 
 # Distance to each neighbor (in cell units): 1.0 for cardinal, sqrt(2) for diagonal
 NEIGHBOR_DIST = ti.Vector([1.0, SQRT2, 1.0, SQRT2, 1.0, SQRT2, 1.0, SQRT2])
-
-
-# =============================================================================
-# Taichi helper functions for use in kernels
-# =============================================================================
 
 
 @ti.func
