@@ -11,24 +11,24 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from src.params import SimulationParams
+from src.diagnostics import MassBalance, compute_total
 from src.fields import (
+    add_uniform,
     allocate,
+    fill_field,
     initialize_tilted_plane,
     initialize_vegetation,
-    fill_field,
-    add_uniform,
 )
-from src.diagnostics import MassBalance, compute_total
 from src.kernels.flow import (
+    FLOW_EXPONENT,
     compute_cfl_timestep,
     compute_flow_directions,
     route_surface_water,
-    FLOW_EXPONENT,
 )
 from src.kernels.infiltration import infiltration_step
 from src.kernels.soil import soil_moisture_step
 from src.kernels.vegetation import vegetation_step
+from src.params import SimulationParams
 
 
 @dataclass
@@ -183,8 +183,7 @@ class Simulation:
         dx2 = p.dx * p.dx
 
         total_et, total_leakage = soil_moisture_step(
-            fields.M, fields.M_new, fields.P, fields.mask,
-            p.E_max, p.k_ET, p.beta_ET, p.L_max, p.M_sat, p.D_M, p.dx, dt
+            fields, p.E_max, p.k_ET, p.beta_ET, p.L_max, p.M_sat, p.D_M, p.dx, dt
         )
 
         self.state.mass_balance.cumulative_et += total_et * dx2
@@ -206,8 +205,7 @@ class Simulation:
         fields = self.state.fields
 
         return vegetation_step(
-            fields.P, fields.P_new, fields.M, fields.mask,
-            p.g_max, p.k_G, p.mu, p.D_P, p.dx, dt
+            fields, p.g_max, p.k_G, p.mu, p.D_P, p.dx, dt
         )
 
     def run(
@@ -277,7 +275,3 @@ class Simulation:
 def create_simulation_fields(n: int) -> SimpleNamespace:
     """Create all Taichi fields needed for simulation."""
     return allocate(n)
-
-
-# Re-export for backwards compatibility
-from src.fields import initialize_tilted_plane, initialize_vegetation
