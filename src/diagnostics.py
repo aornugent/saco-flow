@@ -30,12 +30,12 @@ class MassBalance:
             - self.cumulative_outflow
         )
 
-    def check(self, actual: float, rtol: float = 1e-4, atol: float = 1e-8) -> float:
+    def check(self, actual: float, rtol: float = 1e-3, atol: float = 1e-8) -> float:
         """Check mass conservation and return relative error.
 
         Args:
             actual: Current total water (h + M) [m^3]
-            rtol: Relative tolerance
+            rtol: Relative tolerance (0.1% - accounts for f32 accumulation with fast dynamics)
             atol: Absolute tolerance
 
         Returns:

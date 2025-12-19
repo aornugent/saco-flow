@@ -394,10 +394,15 @@ class TestTuringMechanism:
         (negative nonlocal feedback).
 
         More vegetation → more infiltration → less surface runoff reaching boundaries.
+
+        Note: Uses slower infiltration rate (alpha=10) to make vegetation effect
+        observable. With very fast infiltration (alpha=200), all water infiltrates
+        in both scenarios before it can runoff.
         """
         from src.fields import fill_field
 
-        params = SimulationParams(n=32)
+        # Use slower infiltration to observe vegetation feedback
+        params = SimulationParams(n=32, alpha=10.0, k_P=1.0)
 
         # Test 1: Low vegetation - more runoff
         sim_low = Simulation(params)

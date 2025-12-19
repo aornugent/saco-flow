@@ -50,8 +50,8 @@ class SimulationParams:
     interstorm: float = 18.0  # [days] mean interstorm period (~20 events/year)
 
     # Infiltration
-    alpha: float = 0.1  # [1/day] infiltration rate coefficient
-    k_P: float = 1.0  # [kg/m^2] vegetation half-saturation for infiltration
+    alpha: float = 200.0  # [1/day] infiltration rate (~K_sat for sandy-loam soil)
+    k_P: float = 5.0  # [kg/m^2] vegetation half-saturation for infiltration (woody)
     W_0: float = 0.2  # [-] bare soil infiltration factor
     M_sat: float = 0.4  # [m] saturated soil moisture
 
@@ -62,11 +62,11 @@ class SimulationParams:
     L_max: float = 0.002  # [1/day] deep leakage coefficient
     D_M: float = 0.1  # [m^2/day] soil moisture diffusivity
 
-    # Vegetation
-    g_max: float = 0.02  # [1/day] max growth rate
+    # Vegetation (woody: slow growth, low mortality, slow dispersal)
+    g_max: float = 0.002  # [1/day] max growth rate (woody: slow biomass accumulation)
     k_G: float = 0.1  # [m] growth half-saturation moisture
-    mu: float = 0.001  # [1/day] mortality rate
-    D_P: float = 0.01  # [m^2/day] seed dispersal diffusivity
+    mu: float = 0.0001  # [1/day] mortality rate (~27-year lifespan for shrubs)
+    D_P: float = 0.001  # [m^2/day] seed dispersal diffusivity (slow clonal spread)
 
     # Surface routing
     manning_n: float = 0.03  # [-] Manning's roughness coefficient

@@ -35,18 +35,23 @@ Neumann boundaries. Represents local seed spread.
 
 ## Parameters
 
-| Parameter | Symbol | Typical | Units |
-|-----------|--------|---------|-------|
-| Max growth rate | g_max | 0.02 | day⁻¹ |
-| Growth half-sat | k_G | 0.1 | m |
-| Mortality rate | μ | 0.001 | day⁻¹ |
-| Dispersal diffusivity | D_P | 0.01 | m²/day |
+| Parameter | Symbol | Woody | Units | Notes |
+|-----------|--------|-------|-------|-------|
+| Max growth rate | g_max | 0.002 | day⁻¹ | Slow woody biomass accumulation |
+| Growth half-sat | k_G | 0.1 | m | |
+| Mortality rate | μ | 0.0001 | day⁻¹ | ~27-year lifespan for shrubs |
+| Dispersal diffusivity | D_P | 0.001 | m²/day | Slow clonal/seed spread |
+
+**Lifespan check**: Expected lifespan = 1/μ = 10,000 days ≈ 27 years (appropriate for woody shrubs).
+
+**Doubling time check**: At high moisture, doubling time ≈ ln(2)/(g_max - μ) ≈ 365 days (appropriate for wood).
 
 ## Timestep
 
 Weekly updates (7 days). Vegetation dynamics are slow relative to water.
 
-Stability: `dt <= dx² / (4·D_P)` (usually satisfied by weekly timestep).
+Stability: `dt <= dx² / (4·D_P)`. With D_P = 0.001 m²/day and dx = 1m:
+`dt <= 1 / 0.004 = 250 days` (weekly timestep is stable).
 
 ## Implementation Notes
 

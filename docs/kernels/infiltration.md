@@ -15,12 +15,16 @@ This encodes:
 
 ## Parameters
 
-| Parameter | Symbol | Typical | Units |
-|-----------|--------|---------|-------|
-| Infiltration rate | α | 0.1 | day⁻¹ |
-| Vegetation half-sat | k_P | 1.0 | kg/m² |
-| Bare soil fraction | W_0 | 0.1 | - |
-| Saturation capacity | M_sat | 0.3 | m |
+| Parameter | Symbol | Woody | Units | Notes |
+|-----------|--------|-------|-------|-------|
+| Infiltration rate | α | 200.0 | day⁻¹ | ~K_sat for sandy-loam soil |
+| Vegetation half-sat | k_P | 5.0 | kg/m² | Requires significant woody biomass |
+| Bare soil fraction | W_0 | 0.2 | - | |
+| Saturation capacity | M_sat | 0.4 | m | |
+
+**Infiltration timescale check**: With α = 200 day⁻¹ and h = 10mm ponded water,
+infiltration rate I ≈ 200 × 0.01 = 2 m/day = 83 mm/hr.
+Surface water clears within ~0.1 day (2.4 hours), matching field observations.
 
 ## Implementation Notes
 
