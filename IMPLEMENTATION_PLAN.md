@@ -90,19 +90,19 @@ Add `ti.block_local()` caching for diffusion stencils.
 
 ---
 
-## Phase 5: 10k×10k Validation
+## Phase 5: 10k×10k Validation ✓
 
 Verify execution at target scale.
 
-| Task | File |
-|------|------|
-| Memory allocation test | `tests/test_large_grid.py` |
-| End-to-end 10k×10k run (1 year) | `benchmarks/` |
-| Verify mass conservation at scale | `tests/` |
+| Task | File | Status |
+|------|------|--------|
+| Memory allocation test | `tests/test_large_grid.py` | ✓ |
+| End-to-end 10k×10k run (1 year) | `benchmarks/` | ✓ |
+| Verify mass conservation at scale | `tests/` | ✓ |
 
 **Memory budget:** ~7.7 GB (< 10% of H100's 80GB)
 
-**Exit:** 10k×10k runs without errors, mass conserved.
+**Exit:** 10k×10k runs without errors, mass conserved. ✓
 
 ---
 
