@@ -38,18 +38,18 @@ See `ecohydro_spec.md` for the complete mathematical formulation.
 
 ### Setup
 
+We use `uv` for speedy dependency management.
+
 ```bash
 # Clone the repository
 git clone https://github.com/aornugent/saco-flow.git
 cd saco-flow
 
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-# or: .venv\Scripts\activate  # Windows
+# Install dependencies into .venv
+uv pip install -r requirements.txt
 
-# Install dependencies
-pip install -r requirements.txt
+# Activate venv
+source .venv/bin/activate
 ```
 
 ### Dependencies
