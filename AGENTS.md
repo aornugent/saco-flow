@@ -28,6 +28,23 @@ Read the docs relevant to your task:
 | Architecture & GPU optimization | `docs/ARCHITECTURE.md` |
 | Current priorities | `IMPLEMENTATION_PLAN.md` |
 
+## Development Setup
+
+We use `uv` for dependency management.
+
+```bash
+# Install dependencies into .venv
+uv pip install -r requirements.txt
+
+# Run tests
+source .venv/bin/activate
+pytest
+
+# Run benchmarks
+source .venv/bin/activate
+python -m benchmarks.benchmark
+```
+
 ## Conventions
 
 - **Fields:** `snake_case`, document units in comments
