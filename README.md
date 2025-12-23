@@ -40,6 +40,16 @@ See `ecohydro_spec.md` for the complete mathematical formulation.
 
 We use `uv` for speedy dependency management.
 
+#### Development Container (Recommended)
+
+This project includes a `.devcontainer` configuration. This provides a consistent environment with Python 3.12, CUDA 13.0 support, and all dependencies pre-installed.
+
+The environment should be automatically detected. If not, reopen the workspace in the container.
+
+#### Local Setup
+
+If you prefer to run locally:
+
 ```bash
 # Clone the repository
 git clone https://github.com/aornugent/saco-flow.git
