@@ -56,7 +56,7 @@ git clone https://github.com/aornugent/saco-flow.git
 cd saco-flow
 
 # Install dependencies into .venv
-uv pip install -r requirements.txt
+uv sync
 
 # Activate venv
 source .venv/bin/activate

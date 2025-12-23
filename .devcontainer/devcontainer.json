@@ -14,9 +14,13 @@
                 "ms-python.python",
                 "ms-python.vscode-pylance",
                 "charliermarsh.ruff"
-            ]
+            ],
+            "settings": {
+                "python.defaultInterpreterPath": "/workspaces/saco-flow/.venv/bin/python"
+            }
         }
     },
+    "postCreateCommand": "uv sync --frozen",
     "remoteUser": "root",
     "workspaceFolder": "/workspaces/saco-flow"
 }
