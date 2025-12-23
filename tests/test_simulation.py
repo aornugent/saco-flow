@@ -83,6 +83,7 @@ class TestSimulationInitialization:
 class TestSimulationRun:
     """Test simulation execution."""
 
+    @pytest.mark.slow
     def test_simulation_runs_without_crash(self, taichi_init):
         """Simulation should complete without errors."""
         params = SimulationParams(n=32)
@@ -94,6 +95,7 @@ class TestSimulationRun:
 
         assert sim.state.current_day > 0
 
+    @pytest.mark.slow
     def test_simulation_mass_conservation(self, taichi_init):
         """Mass should be conserved throughout simulation."""
         params = SimulationParams(n=32)
@@ -107,6 +109,7 @@ class TestSimulationRun:
         error = sim.check_mass_balance()
         assert error < 1e-3, f"Mass balance error: {error}"
 
+    @pytest.mark.slow
     def test_rainfall_increases_water(self, taichi_init):
         """Rainfall should increase total water in system."""
         params = SimulationParams(n=32)
@@ -119,6 +122,7 @@ class TestSimulationRun:
         # Water should have increased (minus any outflow)
         assert state.mass_balance.cumulative_rain > 0
 
+    @pytest.mark.slow
     def test_vegetation_responds_to_moisture(self, taichi_init):
         """Vegetation should change in response to soil moisture."""
         params = SimulationParams(n=32)
@@ -135,6 +139,7 @@ class TestSimulationRun:
         # Vegetation should have changed
         assert not np.allclose(initial_P, final_P)
 
+    @pytest.mark.slow
     def test_water_drains_without_rainfall(self, taichi_init):
         """Water should drain and evaporate without new rainfall."""
         params = SimulationParams(n=32, interstorm=1000.0)  # Very rare rainfall

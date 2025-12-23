@@ -26,6 +26,7 @@ from src.simulation import Simulation, SimulationParams
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning")
 
 
+@pytest.mark.slow
 class TestLongRunStability:
     """
     Verify numerical stability over multi-year simulations.
@@ -348,6 +349,7 @@ class TestPatternWavelength:
             assert wavelength_m < 200, f"Wavelength too large: {wavelength_m:.1f}m"
 
 
+@pytest.mark.slow
 class TestTuringMechanism:
     """
     Verify the positive local and negative nonlocal feedbacks
