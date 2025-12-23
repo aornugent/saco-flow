@@ -15,18 +15,15 @@ Read the docs relevant to your task:
 
 | Task | Read |
 |------|------|
-| Understanding the system | `docs/overview.md`, `ecohydro_spec.md` |
-| Flow direction/routing | `docs/kernels/flow_directions.md`, `docs/kernels/surface_routing.md` |
-| Flow accumulation | `docs/kernels/flow_accumulation.md` |
-| Infiltration | `docs/kernels/infiltration.md` |
-| Soil moisture | `docs/kernels/soil_moisture.md` |
-| Vegetation | `docs/kernels/vegetation.md` |
-| Boundary handling | `docs/boundaries.md` |
-| Timestep strategy | `docs/timesteps.md` |
-| Memory layout | `docs/data_structures.md` |
-| Testing/debugging | `docs/mass_conservation.md` |
-| Architecture & GPU optimization | `docs/ARCHITECTURE.md` |
-| Current priorities | `IMPLEMENTATION_PLAN.md` |
+| Understanding the system | `docs/overview.md` |
+| Physics and parameters | `docs/physics.md` |
+| Numerical methods | `docs/discretization.md` |
+| Code structure / GPU | `docs/architecture.md` |
+| Flow/routing kernels | `docs/kernels/flow.md` |
+| Soil moisture kernels | `docs/kernels/soil.md` |
+| Vegetation kernels | `docs/kernels/vegetation.md` |
+| Testing/debugging | `docs/testing.md` |
+| Performance data | `docs/BENCHMARKS.md` |
 
 ## Development Setup
 

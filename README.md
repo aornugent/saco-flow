@@ -26,7 +26,7 @@ Key feedbacks:
 - **Runoff redistribution:** Water flows downslope via Multiple Flow Direction (MFD) routing
 - **Water-limited growth:** Vegetation growth depends on soil moisture availability
 
-See `ecohydro_spec.md` for the complete mathematical formulation.
+See `docs/physics.md` for the complete mathematical formulation.
 
 ## Installation
 
@@ -77,16 +77,17 @@ matplotlib>=3.7.0
 saco-flow/
 ├── README.md                 # This file
 ├── AGENTS.md                 # Guidelines for AI coding agents
-├── IMPLEMENTATION_PLAN.md    # Phased development roadmap
-├── ecohydro_spec.md          # Mathematical specification (authoritative)
 ├── docs/
-│   ├── ARCHITECTURE.md       # Architecture, buffer strategy, GPU optimization
-│   ├── overview.md           # State variables, governing equations
-│   ├── boundaries.md         # Domain mask, outlets, depressions
-│   ├── timesteps.md          # Operator splitting, CFL conditions
-│   ├── data_structures.md    # Memory layout, neighbor indexing
-│   ├── mass_conservation.md  # Verification and debugging
-│   └── kernels/              # Per-kernel documentation
+│   ├── overview.md           # System description, feedback mechanism
+│   ├── physics.md            # Equations, parameters (authoritative)
+│   ├── discretization.md     # Numerical methods, boundaries, timesteps
+│   ├── architecture.md       # Code structure, buffers, GPU optimization
+│   ├── testing.md            # Conservation verification, debugging
+│   ├── BENCHMARKS.md         # Performance measurements
+│   └── kernels/
+│       ├── flow.md           # Flow direction, routing kernels
+│       ├── soil.md           # ET, leakage, diffusion kernels
+│       └── vegetation.md     # Growth, mortality, dispersal kernels
 ├── src/
 │   ├── config.py             # Taichi initialization
 │   ├── params.py             # SimulationParams (single source of truth)
@@ -96,7 +97,7 @@ saco-flow/
 │   ├── output.py             # Visualization utilities
 │   └── kernels/
 │       ├── flow.py           # MFD routing, flow accumulation
-│       ├── infiltration.py   # Surface → soil water transfer
+│       ├── infiltration.py   # Surface -> soil water transfer
 │       ├── soil.py           # ET, leakage, diffusion
 │       └── vegetation.py     # Growth, mortality, dispersal
 └── tests/                    # Test suite
@@ -106,9 +107,10 @@ saco-flow/
 
 | Document | Purpose |
 |----------|---------|
-| `docs/ARCHITECTURE.md` | Module structure, buffer strategy, GPU optimization |
-| `ecohydro_spec.md` | Authoritative mathematical specification |
-| `AGENTS.md` | Conventions for development |
+| `docs/overview.md` | System description, state variables |
+| `docs/physics.md` | Mathematical specification, parameters |
+| `docs/architecture.md` | Code structure, buffer strategy, GPU |
+| `AGENTS.md` | Development conventions |
 
 ## Quick Start
 
@@ -135,9 +137,7 @@ sim.run(years=10)
 
 ## Development Status
 
-See `IMPLEMENTATION_PLAN.md` for the roadmap.
-
-**Current status:** Core simulation working. Mass conservation verified. Next: GPU optimization.
+**Current status:** Core simulation complete with GPU optimization. Mass conservation verified. See `docs/BENCHMARKS.md` for performance data.
 
 ## Testing
 
