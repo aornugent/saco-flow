@@ -45,6 +45,7 @@ def growth_step(
     total_growth = ti.cast(0.0, DTYPE)
     n = P.shape[0]
 
+    ti.loop_config(block_dim=1024)
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
         if mask[i, j] == 0:
             continue
@@ -82,6 +83,7 @@ def mortality_step(
     total_mortality = ti.cast(0.0, DTYPE)
     n = P.shape[0]
 
+    ti.loop_config(block_dim=1024)
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
         if mask[i, j] == 0:
             continue
@@ -123,6 +125,7 @@ def growth_mortality_step_fused(
     total_mortality = ti.cast(0.0, DTYPE)
     n = P.shape[0]
 
+    ti.loop_config(block_dim=1024)
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
         if mask[i, j] == 0:
             continue

@@ -33,6 +33,7 @@ def compute_flow_directions(
     Flat cells (no downslope neighbors) are flagged with flow_frac[i,j,0] = -1.
     """
     n = Z.shape[0]
+    ti.loop_config(block_dim=1024)
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
         if mask[i, j] == 0:
             continue
@@ -82,6 +83,7 @@ def flow_accumulation_step(
     max_change = ti.cast(0.0, DTYPE)
     n = flow_acc.shape[0]
 
+    ti.loop_config(block_dim=1024)
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
         if mask[i, j] == 0:
             continue
@@ -155,6 +157,7 @@ def compute_outflow(
     CFL-limited: q_out <= h/dt
     """
     n = h.shape[0]
+    ti.loop_config(block_dim=1024)
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
         if mask[i, j] == 0:
             q_out[i, j] = 0.0
@@ -199,6 +202,7 @@ def apply_fluxes(
     boundary_outflow = ti.cast(0.0, DTYPE)
     n = h.shape[0]
 
+    ti.loop_config(block_dim=1024)
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
         if mask[i, j] == 0:
             continue
@@ -262,6 +266,7 @@ def compute_max_velocity(
     v_max = ti.cast(0.0, DTYPE)
     n = h.shape[0]
 
+    ti.loop_config(block_dim=1024)
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
         if mask[i, j] == 0:
             continue

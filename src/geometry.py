@@ -121,6 +121,7 @@ def laplacian_diffusion_step(
     n = field.shape[0]
     coeff = D * dt / (dx * dx)
 
+    ti.loop_config(block_dim=1024)
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
         if mask[i, j] == 0:
             field_new[i, j] = field[i, j]

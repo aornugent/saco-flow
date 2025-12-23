@@ -42,6 +42,7 @@ def evapotranspiration_step(
     total_et = ti.cast(0.0, DTYPE)
     n = M.shape[0]
 
+    ti.loop_config(block_dim=1024)
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
         if mask[i, j] == 0:
             continue
@@ -83,6 +84,7 @@ def leakage_step(
     total_leakage = ti.cast(0.0, DTYPE)
     n = M.shape[0]
 
+    ti.loop_config(block_dim=1024)
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
         if mask[i, j] == 0:
             continue
@@ -130,6 +132,7 @@ def et_leakage_step_fused(
     total_leakage = ti.cast(0.0, DTYPE)
     n = M.shape[0]
 
+    ti.loop_config(block_dim=1024)
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
         if mask[i, j] == 0:
             continue

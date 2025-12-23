@@ -30,9 +30,9 @@ class ScalingBenchmark(Benchmark):
 
     def run(self) -> list[ScalingMetrics]:
         results = []
-        sizes = [1024, 2048, 5120, 10000]
+        sizes = [1000, 2000, 5000, 10000]
 
-        self.print_header("SCALING BENCHMARK (RTX 3090)")
+        self.print_header("SCALING BENCHMARK")
 
         for n in sizes:
             try:
@@ -104,3 +104,6 @@ class ScalingBenchmark(Benchmark):
                 f"{r.megacells_per_second:>10.2f}"
             )
         self.print_footer()
+if __name__ == "__main__":
+    benchmark = ScalingBenchmark()
+    benchmark.run()
