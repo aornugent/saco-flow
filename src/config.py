@@ -39,7 +39,11 @@ def get_backend() -> str:
     return "cpu"
 
 
-def init_taichi(backend: str | None = None, debug: bool | None = None) -> str:
+def init_taichi(
+    backend: str | None = None,
+    debug: bool | None = None,
+    kernel_profiler: bool = False,
+) -> str:
     """Initialize Taichi with specified or auto-detected backend."""
     if backend is None:
         backend = get_backend()
@@ -50,7 +54,14 @@ def init_taichi(backend: str | None = None, debug: bool | None = None) -> str:
     if arch is None:
         raise ValueError(f"Unknown backend: {backend}")
 
-    ti.init(arch=arch, default_fp=DTYPE, debug=debug, offline_cache=True, random_seed=42)
+    ti.init(
+        arch=arch,
+        default_fp=DTYPE,
+        debug=debug,
+        offline_cache=True,
+        random_seed=42,
+        kernel_profiler=kernel_profiler,
+    )
     return backend
 
 

@@ -147,7 +147,27 @@ ti.profiler.print_kernel_profiler_info()
 - At 10k×10k, this is 100M atomic adds per kernel call — may serialize on GPU
 - Consider hierarchical reduction if atomics > 5% of kernel time
 
-**Exit:** Bottlenecks identified, performance documented.
+**Exit:** Bottlenecks identified, performance documented. ✓
+
+---
+
+## Phase 8: Benchmark Refactoring & Analysis ✓
+
+Consolidate benchmarking tools and perform deep-dive analysis.
+
+| Task | File | Status |
+|------|------|--------|
+| Refactor benchmark harness to modular design | `benchmarks/` | ✓ |
+| Implement CLI runner (`benchmarks/run.py`) | `benchmarks/` | ✓ |
+| Port scaling, kernel, and diffusion benchmarks | `benchmarks/` | ✓ |
+| Comprehensive profiling of 10k grid | `docs/BENCHMARKS.md` | ✓ |
+
+**Findings:**
+- **Bottleneck:** Surface Routing (`apply_fluxes`) accounts for ~50% of runtime.
+- **Physics Efficiency:** Fused kernels (ET, growth, mortality) are highly efficient (<5% runtime).
+- **Scale:** Stable execution at 100M cells.
+
+**Exit:** Benchmarking suite robust, performance fully characterized. ✓
 
 ---
 
@@ -163,6 +183,7 @@ ti.profiler.print_kernel_profiler_info()
 - [x] 10k×10k at ≥1 year/minute on H100 (Projected from 3090: 0.62 * 3.5 > 2.0)
 - [x] >50% theoretical bandwidth achieved
 - [x] Performance documented in BENCHMARKS.md
+- [x] Benchmarking harness refactored and modularized
 
 ---
 
