@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from src.diagnostics import MassBalance, compute_total
+from src.diagnostics import MassBalance, compute_total, compute_max
 from src.fields import (
     add_uniform,
     allocate,
@@ -54,9 +54,7 @@ class SimulationState:
 
     def max_surface_water(self) -> float:
         """Maximum surface water depth [m]."""
-        h_np = self.fields.h.to_numpy()
-        mask_np = self.fields.mask.to_numpy()
-        return float(np.max(h_np * (mask_np == 1)))
+        return float(compute_max(self.fields.h, self.fields.mask))
 
 
 class Simulation:
@@ -127,7 +125,11 @@ class Simulation:
         t = 0.0
         max_subcycles = 10000  # Safety limit
 
-        n_interior = int(np.sum(fields.mask.to_numpy() == 1))
+        n_interior = int(compute_total(fields.mask, fields.mask))
+
+        # Track max velocity for lagged CFL (avoid recomputing each step)
+        last_v_max = 0.0
+        first_step = True
 
         for _ in range(max_subcycles):
             # Check termination
@@ -137,10 +139,19 @@ class Simulation:
                 break
 
             # Compute CFL timestep
-            dt = compute_cfl_timestep(
-                fields.h, fields.Z, fields.flow_frac, fields.mask,
-                p.dx, p.manning_n, cfl=0.5
-            )
+            # First step: explicit computation (expensive)
+            # Subsequent steps: use v_max from previous routing step (cheap)
+            if first_step:
+                dt = compute_cfl_timestep(
+                    fields.h, fields.Z, fields.flow_frac, fields.mask,
+                    p.dx, p.manning_n, cfl=0.5
+                )
+                first_step = False
+            else:
+                if last_v_max < 1e-10:
+                    dt = float("inf")
+                else:
+                    dt = 0.5 * p.dx / last_v_max
 
             # Limit timestep
             if dt == float("inf"):
@@ -154,7 +165,8 @@ class Simulation:
                 self.state.mass_balance.cumulative_rain += rain_this_step * n_interior * dx2
 
             # Route surface water
-            boundary_outflow = route_surface_water(
+            # Returns boundary outflow AND max velocity for next timestep
+            boundary_outflow, last_v_max = route_surface_water(
                 fields.h, fields.Z, fields.flow_frac, fields.mask,
                 fields.q_out, p.dx, dt, p.manning_n
             )

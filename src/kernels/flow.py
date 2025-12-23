@@ -4,9 +4,7 @@ Flow direction, accumulation, and surface water routing kernels.
 MFD (Multiple Flow Direction) distributes flow to downslope neighbors
 proportional to slope^p. Routing uses kinematic wave with CFL limiting.
 """
-
 import taichi as ti
-
 from src.fields import copy_field
 from src.geometry import DTYPE, NEIGHBOR_DI, NEIGHBOR_DIST, NEIGHBOR_DJ
 
@@ -140,7 +138,7 @@ def compute_flow_accumulation(
 
 
 @ti.kernel
-def compute_outflow(
+def compute_outflow_and_velocity(
     h: ti.template(),
     Z: ti.template(),
     flow_frac: ti.template(),
@@ -149,13 +147,17 @@ def compute_outflow(
     dx: DTYPE,
     dt: DTYPE,
     manning_n: DTYPE,
-):
+) -> DTYPE:
     """
-    Compute outflow rate for each cell (Pass 1 of routing).
+    Compute outflow rate and velocity in one pass.
 
-    Uses kinematic wave: v = h^(2/3) * sqrt(S) / n
-    CFL-limited: q_out <= h/dt
+    Computes:
+    1. Kinematic wave outflow q_out based on slope and roughness.
+    2. Maximum flow velocity v_max for next-step CFL stability.
+
+    Returns max velocity for CFL tracking.
     """
+    v_max = ti.cast(0.0, DTYPE)
     n = h.shape[0]
     ti.loop_config(block_dim=1024)
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
@@ -180,10 +182,16 @@ def compute_outflow(
         if S_max > 0:
             # Kinematic wave velocity
             v = ti.pow(h_local, 2.0 / 3.0) * ti.sqrt(S_max) / manning_n
-            # CFL-limited outflow rate [m/s] * [m] / [m] = [m/s]
+            
+            # Track max velocity
+            ti.atomic_max(v_max, v)
+            
+            # CFL-limited outflow rate
             q_out[i, j] = ti.min(h_local / dt, v * h_local / dx)
         else:
             q_out[i, j] = 0.0
+
+    return v_max
 
 
 @ti.kernel
@@ -195,8 +203,11 @@ def apply_fluxes(
     dt: DTYPE,
 ) -> DTYPE:
     """
-    Apply outflow and inflow fluxes to update water depth (Pass 2 of routing).
-
+    Apply outflow and inflow fluxes.
+    
+    Each cell subtracts its own outflow and pushes flux to downstream neighbors.
+    Uses atomic adds to safely accumulate inflows from multiple sources.
+    
     Returns total outflow at domain boundaries for mass balance tracking.
     """
     boundary_outflow = ti.cast(0.0, DTYPE)
@@ -206,51 +217,43 @@ def apply_fluxes(
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
         if mask[i, j] == 0:
             continue
-
-        # Outflow from this cell
-        delta_h = -q_out[i, j] * dt
-
-        # Inflow from neighbors
-        for k in ti.static(range(8)):
-            ni = i + NEIGHBOR_DI[k]
-            nj = j + NEIGHBOR_DJ[k]
-
-            if mask[ni, nj] == 1:
-                # Neighbor donates via direction (k+4)%8
-                donor_dir = (k + 4) % 8
-                frac = flow_frac[ni, nj, donor_dir]
-                if frac > 0:
-                    delta_h += frac * q_out[ni, nj] * dt
-
-        h[i, j] = ti.max(0.0, h[i, j] + delta_h)
-
-    # Track boundary outflow (water leaving domain)
-    # Check cells adjacent to boundaries
-    for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
-        if mask[i, j] == 0:
+            
+        q = q_out[i, j]
+        if q <= 0:
             continue
 
-        for k in ti.static(range(8)):
-            ni = i + NEIGHBOR_DI[k]
-            nj = j + NEIGHBOR_DJ[k]
+        flux_total = q * dt
+        
+        # Safe subtraction using atomic_add
+        ti.atomic_add(h[i, j], -flux_total)
 
-            # If neighbor is boundary/outside, count outflow
-            if mask[ni, nj] == 0:
-                frac = flow_frac[i, j, k]
-                if frac > 0:
-                    ti.atomic_add(boundary_outflow, frac * q_out[i, j] * dt)
+        # Push to neighbors
+        for k in ti.static(range(8)):
+            frac = flow_frac[i, j, k]
+            if frac > 0:
+                flux_part = frac * flux_total
+                
+                ni = i + NEIGHBOR_DI[k]
+                nj = j + NEIGHBOR_DJ[k]
+                
+                if mask[ni, nj] == 1:
+                    ti.atomic_add(h[ni, nj], flux_part)
+                else:
+                    # Outflow from domain
+                    ti.atomic_add(boundary_outflow, flux_part)
 
     return boundary_outflow
 
 
-def route_surface_water(h, Z, flow_frac, mask, q_out, dx, dt, manning_n) -> float:
+def route_surface_water(h, Z, flow_frac, mask, q_out, dx, dt, manning_n) -> tuple[float, float]:
     """
-    Route surface water one timestep using two-pass scheme.
+    Route surface water one timestep using optimized kernels.
 
-    Returns boundary outflow for mass balance tracking.
+    Returns (boundary_outflow, max_velocity).
     """
-    compute_outflow(h, Z, flow_frac, mask, q_out, dx, dt, manning_n)
-    return apply_fluxes(h, q_out, flow_frac, mask, dt)
+    v_max = compute_outflow_and_velocity(h, Z, flow_frac, mask, q_out, dx, dt, manning_n)
+    boundary_outflow = apply_fluxes(h, q_out, flow_frac, mask, dt)
+    return boundary_outflow, v_max
 
 
 @ti.kernel
@@ -295,9 +298,8 @@ def compute_cfl_timestep(
     h, Z, flow_frac, mask, dx: float, manning_n: float, cfl: float = 0.5
 ) -> float:
     """
-    Compute CFL-limited timestep for surface routing.
-
-    dt <= cfl * dx / v_max
+    Compute CFL-limited timestep using compute_max_velocity.
+    Kept for initial step or if needed.
     """
     v_max = compute_max_velocity(h, Z, flow_frac, mask, dx, manning_n)
     if v_max < 1e-10:

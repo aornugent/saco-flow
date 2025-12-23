@@ -1068,7 +1068,7 @@ class TestMFDAnalytical:
         from src.kernels.flow import (
             FLOW_EXPONENT,
             compute_flow_directions,
-            compute_outflow,
+            compute_outflow_and_velocity,
         )
 
         n = 16
@@ -1095,7 +1095,7 @@ class TestMFDAnalytical:
         compute_flow_directions(
             fields.Z, fields.mask, fields.flow_frac, dx, FLOW_EXPONENT
         )
-        compute_outflow(
+        compute_outflow_and_velocity(
             fields.h, fields.Z, fields.flow_frac, fields.mask,
             fields.q_out, dx, dt, manning_n
         )

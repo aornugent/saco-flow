@@ -73,6 +73,16 @@ def compute_total(field: ti.template(), mask: ti.template()) -> DTYPE:
     return total
 
 
+@ti.kernel
+def compute_max(field: ti.template(), mask: ti.template()) -> DTYPE:
+    """Find max field value where mask == 1."""
+    max_val = ti.cast(0.0, DTYPE)
+    for I in ti.grouped(field):
+        if mask[I] == 1:
+            ti.atomic_max(max_val, field[I])
+    return max_val
+
+
 def check_conservation(
     initial: float,
     final: float,
