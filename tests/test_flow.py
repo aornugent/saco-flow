@@ -3,6 +3,7 @@ Tests for flow direction, accumulation, and surface water routing.
 """
 
 import numpy as np
+import pytest
 
 from src.config import DefaultParams
 from src.kernels.flow import (
@@ -352,6 +353,7 @@ class TestCFLTimestep:
         assert not np.any(h_final < -1e-10), "Negative values in h"
 
 
+@pytest.mark.slow
 class TestBoundaryOutflow:
     """Test that boundary outflow tracking is accurate."""
 
