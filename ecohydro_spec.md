@@ -749,9 +749,9 @@ def save_state(day: float):
 ### 11.1 From Real DEM
 
 ```python
-def initialize_from_dem(dem_path: str):
+def initialize_from_dem(fields: SimpleNamespace, dem: np.ndarray):
     """
-    Load DEM and initialize all fields.
+    Initialize elevation from DEM array.
     """
     import rasterio
     

@@ -2,8 +2,6 @@
 
 Integrates surface water routing, infiltration, soil moisture dynamics,
 and vegetation dynamics with adaptive subcycling for surface processes.
-
-Time units: days throughout.
 """
 
 from dataclasses import dataclass, field
@@ -16,6 +14,8 @@ from src.fields import (
     add_uniform,
     allocate,
     fill_field,
+)
+from src.initialization import (
     initialize_tilted_plane,
     initialize_vegetation,
 )
@@ -271,7 +271,4 @@ class Simulation:
         return self.state.mass_balance.check(self.state.total_water())
 
 
-# Convenience functions for backwards compatibility
-def create_simulation_fields(n: int) -> SimpleNamespace:
-    """Create all Taichi fields needed for simulation."""
-    return allocate(n)
+

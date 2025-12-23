@@ -1,5 +1,5 @@
 """
-Phase 5: System Validation Tests
+System Validation Tests
 
 Verify that the integrated system produces correct emergent behavior:
 1. Long-term numerical stability (no drift over decades)
@@ -7,19 +7,12 @@ Verify that the integrated system produces correct emergent behavior:
 3. Characteristic wavelength in physically reasonable range
 4. Parameter sensitivity (infiltration feedback, rainfall frequency)
 5. Turing instability mechanism validation
-
-These tests verify the SYSTEM as a whole, not individual kernels.
-
-Many of these tests run multi-year simulations and are marked with @pytest.mark.slow.
-Run with `pytest -m "not slow"` to skip them in quick CI runs.
 """
 
-import math
 
 import numpy as np
 import pytest
 
-from src.config import init_taichi, DefaultParams
 from src.simulation import Simulation, SimulationParams
 
 # Register slow marker
@@ -218,7 +211,6 @@ class TestPatternEmergence:
 
         # Compute lag-1 autocorrelation (adjacent cells)
         # Using simple row-wise correlation
-        n = P.shape[0]
         P_center = P[1:-1, 1:-1]
         P_right = P[1:-1, 2:]
         P_down = P[2:, 1:-1]
@@ -264,7 +256,6 @@ class TestPatternWavelength:
         sim.run(years=5.0, check_mass_balance=False, verbose=False)
 
         P = sim.state.fields.P.to_numpy()
-        mask = sim.state.fields.mask.to_numpy()
 
         # Extract interior (excluding boundary)
         P_interior = P[1:-1, 1:-1]
@@ -564,7 +555,6 @@ class TestSlopeEffects:
         sim.run(years=2.0, check_mass_balance=False, verbose=False)
 
         M = sim.state.fields.M.to_numpy()
-        n = params.n
 
         # Compare upslope (north) vs downslope (south)
         M_north = M[5:15, 10:-10].mean()  # Northern interior
@@ -582,8 +572,8 @@ class TestSlopeEffects:
         We test this by comparing the CFL timestep (which is inversely
         proportional to flow velocity) on gentle vs steep slopes.
         """
-        from src.kernels.flow import compute_cfl_timestep
         from src.fields import fill_field
+        from src.kernels.flow import compute_cfl_timestep
 
         # Gentle slope
         params = SimulationParams(n=32)
@@ -643,7 +633,7 @@ class TestEquilibriumStates:
 
         # Track vegetation totals at monthly intervals
         P_totals = []
-        for month in range(24):  # 2 years, monthly
+        for _ in range(24):  # 2 years, monthly
             sim.run(years=1/12, check_mass_balance=False, verbose=False)
             P = sim.state.fields.P.to_numpy()
             P_totals.append(float(P[interior].sum()))
@@ -727,6 +717,3 @@ class TestEquilibriumStates:
             f"At equilibrium, annual vegetation change should be small. "
             f"Relative change: {relative_change:.2%}"
         )
-
-
-# Note: taichi_init fixture is provided by conftest.py (session-scoped)

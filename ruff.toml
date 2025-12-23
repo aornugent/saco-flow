@@ -22,7 +22,7 @@ ignore = [
 
 [lint.per-file-ignores]
 "tests/*" = ["B011"]  # assert False allowed in tests
-"src/kernels/*" = ["E741"]  # Allow I as variable name (Taichi idiom for grouped indices)
+"src/*.py" = ["E741"] # Allow I as variable name (Taichi idiom for grouped indices)
 
 [lint.isort]
 known-first-party = ["src"]

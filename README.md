@@ -88,11 +88,13 @@ saco-flow/
 │   ├── mass_conservation.md  # Verification and debugging
 │   └── kernels/              # Per-kernel documentation
 ├── src/
-│   ├── config.py             # DTYPE, DefaultParams
+│   ├── config.py             # Taichi initialization
+│   ├── params.py             # SimulationParams (single source of truth)
 │   ├── simulation.py         # Main simulation loop
+│   ├── initialization.py     # Data initialization (DEM, vegetation)
+│   ├── fields.py             # Data structure allocation
 │   ├── output.py             # Visualization utilities
 │   └── kernels/
-│       ├── utils.py          # Neighbor offsets, field operations
 │       ├── flow.py           # MFD routing, flow accumulation
 │       ├── infiltration.py   # Surface → soil water transfer
 │       ├── soil.py           # ET, leakage, diffusion
@@ -112,22 +114,23 @@ saco-flow/
 
 ```python
 import taichi as ti
-from src.simulation import EcoHydroSimulation
+from src.simulation import Simulation
+from src.params import SimulationParams
 
 ti.init(arch=ti.gpu)
 
 # Create simulation with synthetic terrain
-sim = EcoHydroSimulation(
-    nx=1000,
-    ny=1000,
+params = SimulationParams(
+    n=1000,
     dx=10.0,  # 10m resolution
 )
+sim = Simulation(params)
 
 # Initialize tilted plane terrain
-sim.init_tilted_plane(slope=0.02)
+sim.initialize(slope=0.02)
 
 # Run for 10 simulated years
-sim.run(years=10, output_interval_days=30)
+sim.run(years=10)
 ```
 
 ## Development Status

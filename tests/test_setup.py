@@ -12,9 +12,10 @@ import numpy as np
 import pytest
 import taichi as ti
 
-from src.config import DTYPE, DefaultParams, get_backend
-from src.fields import fill_field, copy_field, add_uniform, clamp_field
+from src.config import DTYPE, get_backend
 from src.diagnostics import compute_total
+from src.fields import add_uniform, clamp_field, copy_field, fill_field
+from src.params import SimulationParams
 
 
 class TestTaichiInit:
@@ -241,42 +242,46 @@ class TestDefaultParameters:
 
     def test_parameters_exist(self):
         """All expected parameters are defined."""
-        p = DefaultParams
+        p = SimulationParams()
 
         # Grid
-        assert hasattr(p, "DX")
+        assert hasattr(p, "dx")
+        assert hasattr(p, "n")
 
         # Rainfall
-        assert hasattr(p, "R_MEAN")
-        assert hasattr(p, "STORM_DURATION")
-        assert hasattr(p, "INTERSTORM")
+        assert hasattr(p, "rain_depth")
+        assert hasattr(p, "storm_duration")
+        assert hasattr(p, "interstorm")
 
         # Infiltration
-        assert hasattr(p, "K_SAT")
-        assert hasattr(p, "ALPHA_I")
+        assert hasattr(p, "alpha")
+        assert hasattr(p, "k_P")
+        assert hasattr(p, "W_0")
+        assert hasattr(p, "M_sat")
 
         # Soil
-        assert hasattr(p, "M_SAT")
-        assert hasattr(p, "ET_MAX")
-        assert hasattr(p, "LEAKAGE")
-        assert hasattr(p, "D_SOIL")
+        assert hasattr(p, "E_max")
+        assert hasattr(p, "k_ET")
+        assert hasattr(p, "beta_ET")
+        assert hasattr(p, "L_max")
+        assert hasattr(p, "D_M")
 
         # Vegetation
-        assert hasattr(p, "G_MAX")
-        assert hasattr(p, "K_G")
-        assert hasattr(p, "MORTALITY")
-        assert hasattr(p, "D_VEG")
+        assert hasattr(p, "g_max")
+        assert hasattr(p, "k_G")
+        assert hasattr(p, "mu")
+        assert hasattr(p, "D_P")
 
         # Routing
-        assert hasattr(p, "MANNING_N")
-        assert hasattr(p, "MIN_SLOPE")
+        assert hasattr(p, "manning_n")
+        assert hasattr(p, "min_slope")
 
     def test_parameters_positive(self):
         """Physical parameters are positive."""
-        p = DefaultParams
+        p = SimulationParams()
 
-        assert p.DX > 0
-        assert p.R_MEAN > 0
-        assert p.K_SAT > 0
-        assert p.M_SAT > 0
-        assert p.ET_MAX > 0
+        assert p.dx > 0
+        assert p.rain_depth > 0
+        assert p.alpha > 0
+        assert p.M_sat > 0
+        assert p.E_max > 0

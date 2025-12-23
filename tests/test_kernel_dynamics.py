@@ -16,7 +16,6 @@ import math
 
 import numpy as np
 
-from src.config import DefaultParams
 from src.diagnostics import compute_total
 from src.fields import fill_field
 from src.geometry import laplacian_diffusion_step
@@ -32,6 +31,9 @@ from src.kernels.vegetation import (
     growth_step,
     mortality_step,
 )
+from src.params import SimulationParams
+
+params = SimulationParams()
 
 
 class TestMonodKinetics:
@@ -48,9 +50,9 @@ class TestMonodKinetics:
         fields = grid_factory(n=n)
         tilted_plane(fields)
 
-        E_max = DefaultParams.ET_MAX
-        k_M = DefaultParams.K_ET
-        beta_E = DefaultParams.BETA_ET
+        E_max = params.E_max
+        k_M = params.k_ET
+        beta_E = params.beta_ET
         dt = 1.0
 
         # Set moisture at half-saturation
@@ -79,8 +81,8 @@ class TestMonodKinetics:
         fields = grid_factory(n=n)
         tilted_plane(fields)
 
-        g_max = DefaultParams.G_MAX
-        k_G = DefaultParams.K_G
+        g_max = params.g_max
+        k_G = params.k_G
         dt = 1.0
         P_initial = 1.0
 
@@ -108,8 +110,8 @@ class TestMonodKinetics:
         fields = grid_factory(n=n)
         tilted_plane(fields)
 
-        g_max = DefaultParams.G_MAX
-        k_G = DefaultParams.K_G
+        g_max = params.g_max
+        k_G = params.k_G
         dt = 1.0
         P_initial = 1.0
 
@@ -147,10 +149,10 @@ class TestInfiltrationDynamics:
         fields = grid_factory(n=n)
         tilted_plane(fields)
 
-        alpha = DefaultParams.K_SAT / DefaultParams.ALPHA_I  # Effective rate
-        k_P = DefaultParams.K_P
-        W_0 = DefaultParams.W_0
-        M_sat = DefaultParams.M_SAT
+        alpha = params.alpha
+        k_P = params.k_P
+        W_0 = params.W_0
+        M_sat = params.M_sat
         dt = 0.1
         h_initial = 0.05
 
@@ -182,9 +184,9 @@ class TestInfiltrationDynamics:
         tilted_plane(fields)
 
         alpha = 0.1
-        k_P = DefaultParams.K_P
-        W_0 = DefaultParams.W_0
-        M_sat = DefaultParams.M_SAT
+        k_P = params.k_P
+        W_0 = params.W_0
+        M_sat = params.M_sat
         dt = 0.1
         h_initial = 0.05
         P_dense = 100.0  # Very high vegetation
@@ -216,9 +218,9 @@ class TestInfiltrationDynamics:
         tilted_plane(fields)
 
         alpha = 0.1
-        k_P = DefaultParams.K_P
-        W_0 = DefaultParams.W_0
-        M_sat = DefaultParams.M_SAT
+        k_P = params.k_P
+        W_0 = params.W_0
+        M_sat = params.M_sat
         dt = 0.1
         h_initial = 0.1
         P_value = 1.0
@@ -254,8 +256,8 @@ class TestLeakageDynamics:
     def test_leakage_quadratic_relationship(self, grid_factory, tilted_plane):
         """Leakage should follow quadratic (M/M_sat)^2 relationship."""
         n = 16
-        M_sat = DefaultParams.M_SAT
-        L_max = DefaultParams.LEAKAGE
+        M_sat = params.M_sat
+        L_max = params.L_max
         dt = 1.0
 
         # Test at 25%, 50%, 75% saturation
@@ -290,16 +292,16 @@ class TestLeakageDynamics:
         )
 
 
-class TestDefaultParamsEquilibrium:
+class TestParamsEquilibrium:
     """
-    Test equilibrium states and thresholds with DefaultParams values.
+    Test equilibrium states and thresholds with SimulationParams values.
     """
 
     def test_equilibrium_moisture_calculation(self):
         """Verify equilibrium moisture formula: M_eq = mu * k_G / (g_max - mu)."""
-        g_max = DefaultParams.G_MAX  # 0.02
-        k_G = DefaultParams.K_G  # 0.1
-        mu = DefaultParams.MORTALITY  # 0.001
+        g_max = params.g_max  # 0.02
+        k_G = params.k_G  # 0.1
+        mu = params.mu  # 0.001
 
         # At equilibrium: g_max * M / (M + k_G) = mu
         # Solving: M = mu * k_G / (g_max - mu)
@@ -313,17 +315,17 @@ class TestDefaultParamsEquilibrium:
 
     def test_vegetation_persistence_requires_gmax_gt_mu(self):
         """Vegetation can only persist if g_max > mu."""
-        g_max = DefaultParams.G_MAX
-        mu = DefaultParams.MORTALITY
+        g_max = params.g_max
+        mu = params.mu
 
-        # With DefaultParams, g_max >> mu, so vegetation can persist
+        # With params, g_max >> mu, so vegetation can persist
         assert g_max > mu, (
-            f"DefaultParams should have g_max > mu for vegetation persistence. "
+            f"params should have g_max > mu for vegetation persistence. "
             f"g_max={g_max}, mu={mu}"
         )
 
         # Equilibrium moisture should be finite and positive
-        M_eq = compute_equilibrium_moisture(g_max, DefaultParams.K_G, mu)
+        M_eq = compute_equilibrium_moisture(g_max, params.k_G, mu)
         assert 0 < M_eq < float("inf"), (
             f"Equilibrium moisture should be finite and positive. Got {M_eq}"
         )
@@ -334,9 +336,9 @@ class TestDefaultParamsEquilibrium:
         fields = grid_factory(n=n)
         tilted_plane(fields)
 
-        g_max = DefaultParams.G_MAX
-        k_G = DefaultParams.K_G
-        mu = DefaultParams.MORTALITY
+        g_max = params.g_max
+        k_G = params.k_G
+        mu = params.mu
         dt = 7.0  # Weekly timestep
 
         M_eq = compute_equilibrium_moisture(g_max, k_G, mu)
@@ -364,9 +366,9 @@ class TestDefaultParamsEquilibrium:
         fields = grid_factory(n=n)
         tilted_plane(fields)
 
-        g_max = DefaultParams.G_MAX
-        k_G = DefaultParams.K_G
-        mu = DefaultParams.MORTALITY
+        g_max = params.g_max
+        k_G = params.k_G
+        mu = params.mu
         dt = 7.0
 
         M_eq = compute_equilibrium_moisture(g_max, k_G, mu)
@@ -399,7 +401,7 @@ class TestAnalyticalSolutions:
         fields = grid_factory(n=n)
         tilted_plane(fields)
 
-        mu = DefaultParams.MORTALITY
+        mu = params.mu
         P0 = 1.0
         dt = 1.0
         n_steps = 100
@@ -439,8 +441,8 @@ class TestAnalyticalSolutions:
         fields = grid_factory(n=n)
         tilted_plane(fields)
 
-        D_M = DefaultParams.D_SOIL
-        dx = DefaultParams.DX
+        D_M = params.D_M
+        dx = params.dx
         dt = compute_diffusion_timestep(D_M, dx, cfl=0.2)
 
         # Initialize with point source at center
@@ -507,8 +509,8 @@ class TestVegetationFeedback:
         At P=0: veg_factor = W_0
         As P->inf: veg_factor -> 1
         """
-        k_P = DefaultParams.K_P
-        W_0 = DefaultParams.W_0
+        k_P = params.k_P
+        W_0 = params.W_0
 
         # P = 0 (bare soil)
         veg_factor_bare = (0 + k_P * W_0) / (0 + k_P)
@@ -537,9 +539,9 @@ class TestVegetationFeedback:
         """
         n = 16
         alpha = 0.1
-        k_P = DefaultParams.K_P
-        W_0 = DefaultParams.W_0
-        M_sat = DefaultParams.M_SAT
+        k_P = params.k_P
+        W_0 = params.W_0
+        M_sat = params.M_sat
         dt = 0.1
         h_initial = 0.1
 
@@ -572,9 +574,9 @@ class TestVegetationFeedback:
         This is part of the negative feedback (vegetation depletes water faster).
         """
         n = 16
-        E_max = DefaultParams.ET_MAX
-        k_M = DefaultParams.K_ET
-        beta_E = DefaultParams.BETA_ET
+        E_max = params.E_max
+        k_M = params.k_ET
+        beta_E = params.beta_ET
         dt = 1.0
         M_value = 0.2
 
@@ -603,22 +605,22 @@ class TestVegetationFeedback:
 
 class TestTimescaleSeparation:
     """
-    Verify that DefaultParams give physically realistic timescales.
+    Verify that params give physically realistic timescales.
     """
 
     def test_diffusion_timestep_reasonable(self):
         """Soil and vegetation diffusion should allow reasonable timesteps."""
-        dx = DefaultParams.DX
+        dx = params.dx
 
         # Soil moisture diffusion
-        D_soil = DefaultParams.D_SOIL
+        D_soil = params.D_M
         dt_soil = compute_diffusion_timestep(D_soil, dx)
         assert dt_soil > 0.1, (
             f"Soil diffusion timestep should allow > 0.1 day steps. Got {dt_soil:.4f}"
         )
 
         # Vegetation diffusion (slower)
-        D_veg = DefaultParams.D_VEG
+        D_veg = params.D_P
         dt_veg = compute_vegetation_timestep(D_veg, dx)
         assert dt_veg > 1.0, (
             f"Vegetation diffusion timestep should allow > 1 day steps. Got {dt_veg:.4f}"
@@ -630,7 +632,7 @@ class TestTimescaleSeparation:
 
     def test_et_rate_physically_reasonable(self):
         """Max ET should be in reasonable range (few mm/day)."""
-        ET_max = DefaultParams.ET_MAX
+        ET_max = params.E_max
 
         # Convert to mm/day
         ET_max_mm = ET_max * 1000
@@ -651,8 +653,8 @@ class TestTimescaleSeparation:
 
         Vegetation responds to seasonal moisture patterns, not individual storms.
         """
-        g_max = DefaultParams.G_MAX
-        mu = DefaultParams.MORTALITY
+        g_max = params.g_max
+        mu = params.mu
 
         # Vegetation doubling time (at max growth): t = ln(2) / g_max
         doubling_time = math.log(2) / g_max
@@ -669,7 +671,7 @@ class TestTimescaleSeparation:
         )
 
         # Compare to storm timescale
-        storm_duration = DefaultParams.STORM_DURATION  # days
+        storm_duration = params.storm_duration  # days
         assert doubling_time > 100 * storm_duration, (
             f"Vegetation should grow much slower than storm duration. "
             f"Doubling: {doubling_time:.1f} days, Storm: {storm_duration:.2f} days"
@@ -681,49 +683,49 @@ class TestPhysicalConstraints:
     Test that physical constraints are maintained.
     """
 
-    def test_all_default_params_positive(self):
-        """All DefaultParams should be positive."""
-        params = [
-            ("DX", DefaultParams.DX),
-            ("R_MEAN", DefaultParams.R_MEAN),
-            ("STORM_DURATION", DefaultParams.STORM_DURATION),
-            ("INTERSTORM", DefaultParams.INTERSTORM),
-            ("K_SAT", DefaultParams.K_SAT),
-            ("ALPHA_I", DefaultParams.ALPHA_I),
-            ("K_P", DefaultParams.K_P),
-            ("W_0", DefaultParams.W_0),
-            ("M_SAT", DefaultParams.M_SAT),
-            ("ET_MAX", DefaultParams.ET_MAX),
-            ("K_ET", DefaultParams.K_ET),
-            ("BETA_ET", DefaultParams.BETA_ET),
-            ("LEAKAGE", DefaultParams.LEAKAGE),
-            ("D_SOIL", DefaultParams.D_SOIL),
-            ("G_MAX", DefaultParams.G_MAX),
-            ("K_G", DefaultParams.K_G),
-            ("MORTALITY", DefaultParams.MORTALITY),
-            ("D_VEG", DefaultParams.D_VEG),
-            ("MANNING_N", DefaultParams.MANNING_N),
-            ("MIN_SLOPE", DefaultParams.MIN_SLOPE),
-            ("H_THRESHOLD", DefaultParams.H_THRESHOLD),
-            ("DRAINAGE_TIME", DefaultParams.DRAINAGE_TIME),
+    def test_all_params_positive(self):
+        """All params should be positive."""
+        p = params
+        param_list = [
+            ("dx", p.dx),
+            ("rain_depth", p.rain_depth),
+            ("storm_duration", p.storm_duration),
+            ("interstorm", p.interstorm),
+            ("alpha", p.alpha),
+            ("k_P", p.k_P),
+            ("W_0", p.W_0),
+            ("M_sat", p.M_sat),
+            ("E_max", p.E_max),
+            ("k_ET", p.k_ET),
+            ("beta_ET", p.beta_ET),
+            ("L_max", p.L_max),
+            ("D_M", p.D_M),
+            ("g_max", p.g_max),
+            ("k_G", p.k_G),
+            ("mu", p.mu),
+            ("D_P", p.D_P),
+            ("manning_n", p.manning_n),
+            ("min_slope", p.min_slope),
+            ("h_threshold", p.h_threshold),
+            ("drainage_time", p.drainage_time),
         ]
 
-        for name, value in params:
-            assert value > 0, f"DefaultParams.{name} should be positive. Got {value}"
+        for name, value in param_list:
+            assert value > 0, f"params.{name} should be positive. Got {value}"
 
     def test_bare_soil_infiltration_less_than_full(self):
         """W_0 should be less than 1 (bare soil infiltrates less than vegetated)."""
-        W_0 = DefaultParams.W_0
+        W_0 = params.W_0
         assert 0 < W_0 < 1, (
             f"W_0 should be between 0 and 1. Got {W_0}"
         )
 
     def test_vegetation_can_persist_with_available_moisture(self):
         """With M_sat worth of moisture, vegetation should be able to persist."""
-        g_max = DefaultParams.G_MAX
-        k_G = DefaultParams.K_G
-        mu = DefaultParams.MORTALITY
-        M_sat = DefaultParams.M_SAT
+        g_max = params.g_max
+        k_G = params.k_G
+        mu = params.mu
+        M_sat = params.M_sat
 
         M_eq = compute_equilibrium_moisture(g_max, k_G, mu)
 

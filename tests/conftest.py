@@ -1,14 +1,13 @@
 """Pytest fixtures and test utilities for SACO-Flow."""
 
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
 import taichi as ti
 
 from src.config import init_taichi
-from src.geometry import DTYPE
-from src.fields import allocate, initialize_mask
+from src.fields import allocate
+from src.initialization import initialize_mask
 
 
 @pytest.fixture(scope="session", autouse=True)

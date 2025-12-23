@@ -5,7 +5,8 @@ Tests for flow direction, accumulation, and surface water routing.
 import numpy as np
 import pytest
 
-from src.config import DefaultParams
+from src.diagnostics import compute_total
+from src.fields import fill_field
 from src.kernels.flow import (
     FLOW_EXPONENT,
     compute_cfl_timestep,
@@ -13,8 +14,9 @@ from src.kernels.flow import (
     compute_flow_directions,
     route_surface_water,
 )
-from src.fields import fill_field, copy_field
-from src.diagnostics import compute_total
+from src.params import SimulationParams
+
+params = SimulationParams()
 
 
 class TestFlowDirections:
@@ -197,8 +199,8 @@ class TestSurfaceRouting:
 
         initial_mass = compute_total(fields.h, fields.mask)
 
-        dx = DefaultParams.DX
-        manning_n = DefaultParams.MANNING_N
+        dx = params.dx
+        manning_n = params.manning_n
         dt = 0.1
 
         total_boundary_outflow = 0.0
@@ -237,8 +239,8 @@ class TestSurfaceRouting:
         row_weights = np.arange(n).reshape(-1, 1)
         com_init = np.sum(h_init * row_weights * (mask == 1)) / total_init
 
-        dx = DefaultParams.DX
-        manning_n = DefaultParams.MANNING_N
+        dx = params.dx
+        manning_n = params.manning_n
 
         # Route with CFL timestep for sufficient time
         for _ in range(200):
@@ -278,7 +280,7 @@ class TestSurfaceRouting:
         for _ in range(10):
             route_surface_water(
                 fields.h, fields.Z, fields.flow_frac, fields.mask, fields.q_out,
-                DefaultParams.DX, 0.1, DefaultParams.MANNING_N
+                params.dx, 0.1, params.manning_n
             )
 
         final_mass = compute_total(fields.h, fields.mask)
@@ -300,7 +302,7 @@ class TestCFLTimestep:
 
         dt = compute_cfl_timestep(
             fields.h, fields.Z, fields.flow_frac, fields.mask,
-            DefaultParams.DX, DefaultParams.MANNING_N, cfl=0.5,
+            params.dx, params.manning_n, cfl=0.5,
         )
 
         assert 0 < dt < float("inf"), f"dt={dt}"
@@ -317,7 +319,7 @@ class TestCFLTimestep:
 
         dt = compute_cfl_timestep(
             fields.h, fields.Z, fields.flow_frac, fields.mask,
-            DefaultParams.DX, DefaultParams.MANNING_N,
+            params.dx, params.manning_n,
         )
 
         assert dt == float("inf")
@@ -333,8 +335,8 @@ class TestCFLTimestep:
             fields.Z, fields.mask, fields.flow_frac, 1.0, FLOW_EXPONENT
         )
 
-        dx = DefaultParams.DX
-        manning_n = DefaultParams.MANNING_N
+        dx = params.dx
+        manning_n = params.manning_n
 
         for _ in range(50):
             dt = compute_cfl_timestep(
@@ -379,8 +381,8 @@ class TestBoundaryOutflow:
 
         initial_mass = compute_total(fields.h, fields.mask)
 
-        dx = DefaultParams.DX
-        manning_n = DefaultParams.MANNING_N
+        dx = params.dx
+        manning_n = params.manning_n
         total_reported_outflow = 0.0
 
         # Route until drained
@@ -425,8 +427,8 @@ class TestBoundaryOutflow:
 
         initial_mass = compute_total(fields.h, fields.mask)
 
-        dx = DefaultParams.DX
-        manning_n = DefaultParams.MANNING_N
+        dx = params.dx
+        manning_n = params.manning_n
         total_outflow = 0.0
 
         # Route for many steps

@@ -5,12 +5,15 @@ import tempfile
 import numpy as np
 import pytest
 
-from src.config import init_taichi
-from src.params import SimulationParams
 from src.diagnostics import MassBalance
-from src.fields import allocate, initialize_tilted_plane, initialize_vegetation, fill_field
-from src.simulation import Simulation, SimulationState
-from src.output import save_simulation_output, HAS_RASTERIO, HAS_MATPLOTLIB
+from src.fields import allocate, fill_field
+from src.initialization import (
+    initialize_tilted_plane,
+    initialize_vegetation,
+)
+from src.output import HAS_MATPLOTLIB, HAS_RASTERIO, save_simulation_output
+from src.params import SimulationParams
+from src.simulation import Simulation
 
 
 class TestMassBalance:
@@ -45,7 +48,7 @@ class TestMassBalance:
 class TestSimulationInitialization:
     """Test simulation initialization."""
 
-    def test_create_simulation_fields(self, taichi_init):
+    def test_allocate(self, taichi_init):
         """Should create all required fields."""
         fields = allocate(n=32)
 
@@ -240,5 +243,3 @@ class TestSimulationParams:
         assert state.fields.n == 48
         assert state.dx == 2.0
 
-
-# Note: taichi_init fixture is provided by conftest.py (session-scoped)

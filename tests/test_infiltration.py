@@ -4,9 +4,9 @@ Tests for infiltration kernel.
 
 import numpy as np
 
-from src.kernels.infiltration import infiltration_step
-from src.fields import fill_field, copy_field
 from src.diagnostics import compute_total
+from src.fields import fill_field
+from src.kernels.infiltration import infiltration_step
 
 
 class TestInfiltration:

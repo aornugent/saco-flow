@@ -2,19 +2,20 @@
 Base benchmark harness for Saco-Flow.
 """
 import abc
-import time
+from typing import Any
+
 import taichi as ti
-from typing import Any, List
 
 from src.config import init_taichi
 
+
 class Benchmark(abc.ABC):
     """Abstract base class for all benchmarks."""
-    
+
     def __init__(self, profile: bool = False):
         self.profile = profile
         self.init_taichi()
-        
+
     def init_taichi(self):
         """Initialize Taichi backend."""
         print(f"Initializing Taichi (Profile: {self.profile})...")
@@ -29,7 +30,7 @@ class Benchmark(abc.ABC):
         """Run the benchmark logic. Returns results."""
         pass
 
-    def setup(self):
+    def setup(self):  # noqa: B027
         """Optional setup usually called before run."""
         pass
 

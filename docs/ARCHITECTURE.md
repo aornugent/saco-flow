@@ -14,9 +14,11 @@ Simple architecture for a ~2000 line ecohydrological simulation. Add abstraction
 
 ```
 src/
+├── config.py        # Taichi initialization
 ├── geometry.py      # Grid constants, neighbor offsets
 ├── params.py        # Parameter dataclass + validation
-├── fields.py        # All Taichi fields, swap_buffers(), initialization
+├── fields.py        # All Taichi fields, swap_buffers(), allocate()
+├── initialization.py # Data initialization (DEM, vegetation)
 ├── kernels/         # Taichi kernels (one file per process)
 │   ├── flow.py
 │   ├── infiltration.py
@@ -55,10 +57,10 @@ Simple dataclass with validation. Catches typos and invalid values at load time.
 
 ```python
 @dataclass
+
 class SimulationParams:
     # Grid
-    nx: int
-    ny: int
+    n: int     # grid size (n x n)
     dx: float  # [m] cell size
 
     # Infiltration
@@ -114,11 +116,12 @@ Z = ti.field(ti.f32)       # [m] elevation
 mask = ti.field(ti.i32)    # 1=active, 0=inactive
 flow_frac = ti.field(ti.f32)  # D8 flow fractions
 
-def allocate(nx: int, ny: int):
+def allocate(n: int):
     """Allocate all fields for given grid size."""
-    ti.root.dense(ti.ij, (nx, ny)).place(M, M_new, P, P_new)
-    ti.root.dense(ti.ij, (nx, ny)).place(h, q_out, Z, mask)
-    ti.root.dense(ti.ijk, (nx, ny, 8)).place(flow_frac)
+    fields = SimpleNamespace(n=n)
+    fields.M = ti.field(dtype=ti.f32, shape=(n, n))
+    # ... allocate other fields ...
+    return fields
 ```
 
 ## Buffer Strategy: Ping-Pong (No Copy)

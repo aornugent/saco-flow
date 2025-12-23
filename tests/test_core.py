@@ -4,28 +4,28 @@ import numpy as np
 import pytest
 import taichi as ti
 
-from src.config import init_taichi
+from src.fields import (
+    add_uniform,
+    allocate,
+    copy_field,
+    fill_field,
+    swap_buffers,
+)
 from src.geometry import (
     DTYPE,
-    NUM_NEIGHBORS,
     NEIGHBOR_DI,
-    NEIGHBOR_DJ,
     NEIGHBOR_DIST,
-    is_interior,
+    NEIGHBOR_DJ,
+    NUM_NEIGHBORS,
     get_neighbor,
-    get_neighbor_distance,
+    is_interior,
 )
-from src.params import SimulationParams
-from src.fields import (
-    allocate,
-    swap_buffers,
+from src.initialization import (
     initialize_mask,
     initialize_tilted_plane,
     initialize_vegetation,
-    fill_field,
-    copy_field,
-    add_uniform,
 )
+from src.params import SimulationParams
 
 
 class TestGeometry:
@@ -204,7 +204,7 @@ class TestFields:
         add_uniform(fields.h, fields.mask, 2.0)
 
         h_np = fields.h.to_numpy()
-        mask_np = fields.mask.to_numpy()
+        # mask_np = fields.mask.to_numpy()
         # Interior should be 3.0
         assert h_np[4, 4] == 3.0
         # Boundary should still be 1.0 (not modified)
