@@ -38,11 +38,6 @@ def main():
     for bench_cls in to_run:
         print(f"\nRunning {bench_cls.__name__}...")
         try:
-            # Re-instantiate for each run to ensure clean Taichi state if possible
-            # Note: Taichi init is global and sticky, so we just init once in the first one
-            # or rely on the harness handling it.
-            # Ideally we'd reset the backend but ti.reset() isn't fully reliable.
-            # We trust the harness logic.
             b = bench_cls(profile=args.profile)
             b.run()
         except Exception as e:

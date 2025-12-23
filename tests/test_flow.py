@@ -205,7 +205,7 @@ class TestSurfaceRouting:
 
         total_boundary_outflow = 0.0
         for _ in range(10):
-            boundary_out = route_surface_water(
+            boundary_out, _ = route_surface_water(
                 fields.h, fields.Z, fields.flow_frac, fields.mask,
                 fields.q_out, dx, dt, manning_n
             )
@@ -395,7 +395,7 @@ class TestBoundaryOutflow:
                 break
             dt = min(dt, 0.5)
 
-            boundary_out = route_surface_water(
+            boundary_out, _ = route_surface_water(
                 fields.h, fields.Z, fields.flow_frac, fields.mask,
                 fields.q_out, dx, dt, manning_n
             )
@@ -441,7 +441,7 @@ class TestBoundaryOutflow:
                 break
             dt = min(dt, 0.5)
 
-            boundary_out = route_surface_water(
+            boundary_out, _ = route_surface_water(
                 fields.h, fields.Z, fields.flow_frac, fields.mask,
                 fields.q_out, dx, dt, manning_n
             )
