@@ -40,14 +40,10 @@ pytest                         # All tests including slow (~minutes)
 pytest tests/test_flow.py -v  # Specific file, verbose
 pytest --cov=src              # With coverage
 
-# Benchmarks
-python -m benchmarks.benchmark
-
-# Profiling
-python -c "import taichi as ti; ti.init(arch=ti.cuda, kernel_profiler=True); \
-           from src.simulation import Simulation; from src.params import SimulationParams; \
-           sim = Simulation(SimulationParams(n=256)); sim.initialize(); sim.run(years=0.1); \
-           ti.profiler.print_kernel_profiler_info()"
+# Benchmarks & Profiling
+python -m benchmarks.run                           # Run all benchmarks
+python -m benchmarks.run scaling                   # Run specific benchmark
+python -m benchmarks.run --profile                 # Run with Taichi kernel profiler
 ```
 
 ## Code Style
