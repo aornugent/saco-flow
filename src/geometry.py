@@ -24,7 +24,7 @@ from math import sqrt
 
 import taichi as ti
 
-DTYPE = ti.f32
+DTYPE = ti.f64
 
 # Number of neighbors in 8-connectivity
 NUM_NEIGHBORS: int = 8
