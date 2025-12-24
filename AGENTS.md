@@ -3,11 +3,9 @@
 GPU-accelerated ecohydrological simulation using Taichi (B200/H100).
 
 ## Principles
-
-1. **Simplicity first** — Naive implementation before optimization
-2. **Correctness before speed** — Every kernel needs a mass conservation test
-3. **Explicit over implicit** — Physical variable names, units in comments
-4. **Taichi-idiomatic** — Use `ti.template()`, `ti.static()`, ping-pong buffers
+1. **Correctness before speed** — Every kernel needs a mass conservation test
+2. **Explicit over implicit** — Physical variable names, units in comments
+3. **Taichi-idiomatic** — Kernels must be GPU only, avoid CPU transfer bottlenecks
 
 ## Before Starting Work
 
@@ -47,7 +45,6 @@ python -m benchmarks.run --profile                 # Run with Taichi kernel prof
 ```
 
 ## Code Style
-
 - **Fields:** `snake_case`, units in trailing comment: `h = ti.field(...)  # surface water [m]`
 - **Kernels:** `snake_case` verb phrases, docstring with physics equation
 - **Constants:** `UPPER_SNAKE_CASE`
@@ -56,25 +53,23 @@ python -m benchmarks.run --profile                 # Run with Taichi kernel prof
 - **No section separators:** Don't use `# ====` break comments. Use whitespace.
 - **Commit messages:** Imperative mood, max 72 chars (e.g., "Add vegetation dispersal kernel")
 
-## Critical Rules
+## 🚫 STRICT BAN ON META-COMMENTARY 
+**You are prohibited from narrating your thought process, doubts, or verification steps in code comments**
+ - Code comments must describe the `code`, never the `coder`.
+ - Use tools to read the file *before* you start writing code.
+ - Write comments as established facts. Never use phrases like "Assuming," "Ideally," "But wait," or "For now."
+ - Do not leave breadcrumbs of your investigation (e.g., `# Checking geometry.py for offsets`). 
+ - The user only wants the result, not the history of how you found it.
 
+## Critical Rules
 - **Always pass fields as `ti.template()`** — Closure capture bakes fields at JIT time, breaking `swap_buffers()`
 - **Check mask before neighbor access** — `if mask[ni, nj] == 1` prevents out-of-domain reads
-- **Stencil ops use double buffer** — Read from `field`, write to `field_new`, then swap
+- **Stencil ops use double buffer** — Read from `field`, write to `field_new`, then swap_buffers
 - **Point-wise ops can be in-place** — No neighbor reads means no race conditions
 - **Clamp to physical bounds** — `ti.max(0.0, ti.min(M_sat, value))`
 - **CFL stability** — Routing: `dt ≤ dx/v`, Diffusion: `dt ≤ dx²/4D`
 
-## Debugging Mass Errors
-
-1. Test on flat terrain with uniform initial conditions
-2. Track each flux term separately (infiltration, ET, leakage, outflow)
-3. Check boundary cells — water escaping without being counted?
-4. Verify timestep satisfies stability constraints
-5. Run `sim.run(years=1, check_mass_balance=True, verbose=True)` for per-month diagnostics
-
 ## Workflow
-
 1. Read relevant doc from table above
 2. Write test first (conservation + edge cases)
 3. Implement simply, verify mass balance
