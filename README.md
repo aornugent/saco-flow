@@ -114,6 +114,23 @@ saco-flow/
 
 ## Quick Start
 
+### 1. Visualization (CLI)
+Run the real-time 3D visualization:
+```bash
+# Default grid (64x64)
+python -m src.main --gui
+
+# Custom size and duration
+python -m src.main --gui --n 1024 --years 5.0
+```
+
+### 2. Headless Simulation (HPC)
+Run large-scale simulations with configuration files:
+```bash
+python -m src.main --config experiments/10k_100yr.toml --output results/run1
+```
+
+### 3. Python API
 ```python
 import taichi as ti
 from src.simulation import Simulation
