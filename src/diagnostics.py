@@ -64,22 +64,22 @@ class MassBalance:
 
 
 @ti.kernel
-def compute_total(field: ti.template(), mask: ti.template()) -> DTYPE:
-    """Sum field values where mask == 1."""
-    total = ti.cast(0.0, DTYPE)
+def compute_total(field: ti.template(), mask: ti.template()) -> ti.f64:
+    """Sum field values where mask == 1 (uses f64 accumulator)."""
+    total = ti.cast(0.0, ti.f64)
     for I in ti.grouped(field):
         if mask[I] == 1:
-            total += field[I]
+            total += ti.cast(field[I], ti.f64)
     return total
 
 
 @ti.kernel
-def compute_max(field: ti.template(), mask: ti.template()) -> DTYPE:
+def compute_max(field: ti.template(), mask: ti.template()) -> ti.f64:
     """Find max field value where mask == 1."""
-    max_val = ti.cast(0.0, DTYPE)
+    max_val = ti.cast(0.0, ti.f64)
     for I in ti.grouped(field):
         if mask[I] == 1:
-            ti.atomic_max(max_val, field[I])
+            ti.atomic_max(max_val, ti.cast(field[I], ti.f64))
     return max_val
 
 
