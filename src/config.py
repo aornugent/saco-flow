@@ -13,8 +13,7 @@ import subprocess
 
 import taichi as ti
 
-# Re-export DTYPE from geometry for backward compatibility
-from src.geometry import DTYPE
+DTYPE = ti.f32
 
 
 def get_backend() -> str:
@@ -26,7 +25,6 @@ def get_backend() -> str:
     if env != "auto":
         raise ValueError(f"Invalid SACO_BACKEND: {env}")
 
-    # Auto-detect CUDA
     try:
         result = subprocess.run(
             ["nvidia-smi", "-L"], capture_output=True, text=True, timeout=5
@@ -63,5 +61,3 @@ def init_taichi(
         kernel_profiler=kernel_profiler,
     )
     return backend
-
-

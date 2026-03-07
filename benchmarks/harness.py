@@ -1,6 +1,5 @@
-"""
-Base benchmark harness for Saco-Flow.
-"""
+"""Base benchmark harness for SACO-Flow."""
+
 import abc
 from typing import Any
 
@@ -14,28 +13,21 @@ class Benchmark(abc.ABC):
 
     def __init__(self, profile: bool = False):
         self.profile = profile
-        self.init_taichi()
+        self._init_taichi()
 
-    def init_taichi(self):
-        """Initialize Taichi backend."""
-        print(f"Initializing Taichi (Profile: {self.profile})...")
+    def _init_taichi(self):
+        print(f"Initializing Taichi (profile={self.profile})...")
         try:
             init_taichi(backend="cuda", debug=False, kernel_profiler=self.profile)
         except Exception as e:
-            print(f"Warning: CUDA init failed ({e}), falling back to default")
+            print(f"CUDA unavailable ({e}), falling back to auto-detect")
             init_taichi(debug=False, kernel_profiler=self.profile)
 
     @abc.abstractmethod
     def run(self) -> Any:
-        """Run the benchmark logic. Returns results."""
-        pass
-
-    def setup(self):  # noqa: B027
-        """Optional setup usually called before run."""
-        pass
+        """Run the benchmark and return results."""
 
     def teardown(self):
-        """Optional cleanup."""
         if self.profile:
             try:
                 print("\nProfiler Output:")
@@ -45,9 +37,9 @@ class Benchmark(abc.ABC):
                 print(f"Profiler error: {e}")
 
     def print_header(self, title: str):
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print(f"{title:^80}")
-        print("="*80)
+        print("=" * 80)
 
     def print_footer(self):
-        print("="*80)
+        print("=" * 80)
