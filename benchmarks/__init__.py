@@ -1,1 +1,1 @@
-"""Benchmarks for SACO-Flow GPU optimization."""
+"""Benchmarks for SACO-Flow GPU performance."""
