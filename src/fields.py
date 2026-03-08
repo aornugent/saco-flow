@@ -10,24 +10,49 @@ class Fields:
     """Container for simulation fields on a square grid."""
 
     n: int
-    M: ti.Field  # soil moisture [m]
-    M_new: ti.Field  # soil moisture write buffer [m]
+    z: ti.Field  # elevation [m]
+    M: ti.Field  # soil moisture read [m]
+    M_new: ti.Field  # soil moisture write [m]
+    V: ti.Field  # vegetation density read [%]
+    V_new: ti.Field  # vegetation density write [%]
+    Q_out: ti.Field  # outgoing discharge read [m^3/day]
+    Q_out_new: ti.Field  # outgoing discharge write [m^3/day]
+    h: ti.Field  # flow depth [m]
+    I_inf: ti.Field  # infiltration rate [m/day]
+    R: ti.Field  # rainfall rate [m/day]
+    S: ti.Field  # sediment flux read [kg/m/day]
+    S_new: ti.Field  # sediment flux write [kg/m/day]
     mask: ti.Field  # active cell mask (1=active, 0=boundary)
+    flow_frac: ti.Field  # MFD flow fractions to 8 neighbors (n, n, 8)
 
 
 def allocate(n: int) -> Fields:
-    """Allocate Taichi fields for an n x n grid.
+    """Allocate all Taichi fields for an n x n grid.
 
-    Double-buffered: M (read) and M_new (write) for stencil operations.
+    Double-buffered fields: M, V, Q_out, S (stencil/gather ops).
+    Single fields: z, h, I_inf, R (point-wise or recomputed each step).
     """
-    M = ti.field(ti.f32, shape=(n, n))
-    M_new = ti.field(ti.f32, shape=(n, n))
-    mask = ti.field(ti.i32, shape=(n, n))
-    return Fields(n=n, M=M, M_new=M_new, mask=mask)
+    return Fields(
+        n=n,
+        z=ti.field(ti.f32, shape=(n, n)),
+        M=ti.field(ti.f32, shape=(n, n)),
+        M_new=ti.field(ti.f32, shape=(n, n)),
+        V=ti.field(ti.f32, shape=(n, n)),
+        V_new=ti.field(ti.f32, shape=(n, n)),
+        Q_out=ti.field(ti.f32, shape=(n, n)),
+        Q_out_new=ti.field(ti.f32, shape=(n, n)),
+        h=ti.field(ti.f32, shape=(n, n)),
+        I_inf=ti.field(ti.f32, shape=(n, n)),
+        R=ti.field(ti.f32, shape=(n, n)),
+        S=ti.field(ti.f32, shape=(n, n)),
+        S_new=ti.field(ti.f32, shape=(n, n)),
+        mask=ti.field(ti.i32, shape=(n, n)),
+        flow_frac=ti.field(ti.f32, shape=(n, n, 8)),
+    )
 
 
 @ti.kernel
 def swap_buffers(src: ti.template(), dst: ti.template()):
-    """Copy src into dst (used after stencil write to M_new)."""
+    """Copy src into dst (used after stencil write to *_new)."""
     for i, j in src:
         dst[i, j] = src[i, j]

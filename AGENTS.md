@@ -13,11 +13,21 @@ ruff check --fix . && ruff format .
 ## Taichi Rules
 
 - Pass fields as `ti.template()` — closure capture breaks `swap_buffers()`
+- Swap buffers in Python scope (`a, b = b, a`), not with a copy kernel
 - Stencil ops: read from `field`, write to `field_new`, caller swaps after
 - Point-wise ops can be in-place (no neighbor reads, no race conditions)
 - Check `mask[ni, nj] == 1` before reading neighbors
 - Clamp to physical bounds: `ti.max(0.0, ...)`
-- CFL stability: `dt <= dx^2 / (4*D)` for diffusion
+- CFL stability: `dt <= dx^2 / (4*D)` for diffusion; global dt = min across processes
+- One kernel per physical process, compose in Python
+- `ti.static()` for neighbor stencils, layer loops, and process toggles
+- SoA by default: separate `ti.field()` per quantity, no struct packing
+- `ti.block_local()` is not always faster — benchmark before keeping
+- `ti.loop_config(block_dim=)` — tune per kernel, 1024 is not always optimal
+- Never `to_numpy()` in the hot loop; use 0-D fields for running totals
+- Allocate all fields in one place; no scattered allocation after `ti.init()`
+- Test on CPU with `debug=True`, bench on GPU without
+- Each unique `ti.template()` arg triggers a compile — keep variants small and exercise them in warmup
 
 ## Style
 
