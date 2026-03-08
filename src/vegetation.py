@@ -78,6 +78,7 @@ def vegetation_step(
                 laplacian += V[ni, nj] - v
 
         # Flow-directed seed dispersal: gather from upslope
+        # Q_out is cell discharge [m^3/day]; convert to per-unit-width [m^2/day]
         d_flow = ti.cast(0.0, ti.f32)
         for k in ti.static(range(8)):
             di, dj = ti.static(_OFFSETS[k])
@@ -86,7 +87,8 @@ def vegetation_step(
                 opp = ti.static(_OPP[k])
                 frac = flow_frac[ni, nj, opp]
                 if frac > 0.0:
-                    q_seed_full = c1 * Q_out[ni, nj] * V[ni, nj]
+                    q_w = Q_out[ni, nj] / dx  # per-unit-width [m^2/day]
+                    q_seed_full = c1 * q_w * V[ni, nj]
                     q_seed_cap = c2 * V[ni, nj]
                     q_seed = ti.min(q_seed_full, q_seed_cap)
                     d_flow += frac * q_seed

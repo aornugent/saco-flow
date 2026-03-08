@@ -47,30 +47,44 @@ def sediment_transport(
     S_new: ti.template(),
     Q_out: ti.template(),
     z: ti.template(),
+    V: ti.template(),
     flow_frac: ti.template(),
     mask: ti.template(),
     dx: ti.f32,
     gamma: ti.f32,
     m_exp: ti.f32,
     n_exp: ti.f32,
+    K_max: ti.f32,
+    K_min: ti.f32,
+    P_min: ti.f32,
+    P_max: ti.f32,
+    v_low: ti.f32,
+    v_high: ti.f32,
 ):
     """Gather-based sediment transport via stream power.
 
     1. Gather S_0 from upslope neighbors
     2. Compute transport capacity C = gamma * Q^m * slope^n
-    3. S = C + (S_0 - C) * exp(-dx/h_sed)
+    3. Adaptation length h_sed = C / detachment_capacity
+       where detachment_capacity = K*Q*slope (erosion) or P*Q*slope (deposition)
+    4. S = C + (S_0 - C) * exp(-dx / h_sed)
 
     Args:
         S: Sediment flux read [kg/m/day]
         S_new: Sediment flux write [kg/m/day]
         Q_out: Water discharge [m^3/day]
         z: Elevation [m]
+        V: Vegetation density [%]
         flow_frac: MFD fractions (n, n, 8)
         mask: Active cell mask
         dx: Cell spacing [m]
         gamma: Transport coefficient [kg*day^(m-1)/m^(3m+n)]
         m_exp: Discharge exponent [-]
         n_exp: Slope exponent [-]
+        K_max, K_min: Erosion coefficient range [-]
+        P_min, P_max: Deposition coefficient range [-]
+        v_low: Vegetation threshold for max erosion [%]
+        v_high: Vegetation threshold for min erosion [%]
     """
     n = S.shape[0]
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
@@ -101,8 +115,19 @@ def sediment_transport(
         q = Q_out[i, j]
         C = gamma * ti.pow(ti.max(q, 0.0), m_exp) * ti.pow(slope_max, n_exp)
 
-        # Adaptation length: exponential approach to capacity
-        h_sed = ti.max(dx, 1.0)  # adaptation length [m]
+        # Adaptation length: h_sed = C / detachment_or_settlement_capacity
+        # S_0 > C → deposition regime, use P; S_0 <= C → erosion regime, use K
+        kp = _erosion_deposition_coeffs(
+            V[i, j], K_max, K_min, P_min, P_max, v_low, v_high
+        )
+        det_cap = ti.cast(0.0, ti.f32)
+        if S_0 > C:
+            det_cap = kp[1] * q * slope_max  # deposition: P * Q * slope
+        else:
+            det_cap = kp[0] * q * slope_max  # erosion: K * Q * slope
+        eps = ti.cast(1e-8, ti.f32)
+        h_sed = ti.max(dx * 0.1, C / ti.max(det_cap, eps))
+
         S_new[i, j] = ti.max(0.0, C + (S_0 - C) * ti.exp(-dx / h_sed))
 
 
