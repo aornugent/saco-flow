@@ -2,8 +2,8 @@
 
 import numpy as np
 
+from src.diffusion import compute_stable_dt, diffusion_step
 from src.fields import allocate, swap_buffers
-from src.kernels.diffusion import compute_stable_dt, diffusion_step
 
 
 def _setup_grid(n: int, initial_moisture: np.ndarray | None = None):

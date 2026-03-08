@@ -1,12 +1,12 @@
-"""Diffusion stencil benchmark — measures GPU throughput for the Laplacian kernel."""
+"""Diffusion stencil benchmark: python bench.py"""
 
 import time
 
 import numpy as np
 import taichi as ti
 
+from src.diffusion import compute_stable_dt, diffusion_step
 from src.fields import allocate, swap_buffers
-from src.kernels.diffusion import compute_stable_dt, diffusion_step
 
 GRID_SIZES = [256, 512, 1024, 2048, 4096]
 N_WARMUP = 10
@@ -14,7 +14,7 @@ N_STEPS = 100
 
 
 def bench_grid(n: int) -> dict:
-    """Benchmark diffusion on an n x n grid. Returns timing metrics."""
+    """Benchmark diffusion on an n x n grid."""
     fields = allocate(n)
     fields.M.from_numpy(np.random.uniform(0.1, 0.3, (n, n)).astype(np.float32))
 
@@ -43,15 +43,13 @@ def bench_grid(n: int) -> dict:
         "total_s": elapsed,
         "ms_per_step": elapsed / N_STEPS * 1000,
         "cells_per_s": cells / elapsed,
-        "bw_gb_s": 44
-        * cells
-        / elapsed
-        / 1e9,  # ~44 bytes/cell: read 5 floats + mask, write 1 float
+        "bw_gb_s": 44 * cells / elapsed / 1e9,
     }
 
 
-def run():
-    """Run diffusion benchmark across grid sizes and print results."""
+if __name__ == "__main__":
+    ti.init(arch=ti.gpu, default_fp=ti.f32)
+
     results = []
     for n in GRID_SIZES:
         print(f"  {n}x{n} ({n**2 / 1e6:.1f}M cells)...", end=" ", flush=True)

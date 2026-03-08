@@ -11,7 +11,20 @@ dependencies = [
     "taichi>=1.7.0",
 ]
 
-[tool.pytest.ini_options]
-markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP"]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # function calls in default arguments (needed for Taichi)
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+"src/*.py" = ["E741"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
