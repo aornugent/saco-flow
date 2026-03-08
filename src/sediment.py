@@ -47,30 +47,43 @@ def sediment_transport(
     S_new: ti.template(),
     Q_out: ti.template(),
     z: ti.template(),
+    V: ti.template(),
     flow_frac: ti.template(),
     mask: ti.template(),
     dx: ti.f32,
     gamma: ti.f32,
     m_exp: ti.f32,
     n_exp: ti.f32,
+    K_max: ti.f32,
+    K_min: ti.f32,
+    P_min: ti.f32,
+    P_max: ti.f32,
+    v_low: ti.f32,
+    v_high: ti.f32,
 ):
     """Gather-based sediment transport via stream power.
 
     1. Gather S_0 from upslope neighbors
     2. Compute transport capacity C = gamma * Q^m * slope^n
-    3. S = C + (S_0 - C) * exp(-dx/h_sed)
+    3. h_sed = C / (K*q*slope) for erosion, C / (P*q*slope) for deposition
+    4. S = C + (S_0 - C) * exp(-dx/h_sed)
 
     Args:
         S: Sediment flux read [kg/m/day]
         S_new: Sediment flux write [kg/m/day]
         Q_out: Water discharge [m^3/day]
         z: Elevation [m]
+        V: Vegetation density [%]
         flow_frac: MFD fractions (n, n, 8)
         mask: Active cell mask
         dx: Cell spacing [m]
         gamma: Transport coefficient [kg*day^(m-1)/m^(3m+n)]
         m_exp: Discharge exponent [-]
         n_exp: Slope exponent [-]
+        K_max, K_min: Erosion coefficient range [-]
+        P_min, P_max: Deposition coefficient range [-]
+        v_low: Vegetation threshold for max erosion [%]
+        v_high: Vegetation threshold for min erosion [%]
     """
     n = S.shape[0]
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
@@ -101,8 +114,15 @@ def sediment_transport(
         q = Q_out[i, j]
         C = gamma * ti.pow(ti.max(q, 0.0), m_exp) * ti.pow(slope_max, n_exp)
 
-        # Adaptation length: exponential approach to capacity
-        h_sed = ti.max(dx, 1.0)  # adaptation length [m]
+        # Adaptation length: h = C / (detachment or deposition capacity)
+        kp = _erosion_deposition_coeffs(
+            V[i, j], K_max, K_min, P_min, P_max, v_low, v_high
+        )
+        denom = q * slope_max
+        coeff = kp[1]  # deposition regime by default
+        if S_0 < C:
+            coeff = kp[0]  # erosion regime
+        h_sed = ti.max(C / ti.max(coeff * denom, 1e-10), dx)  # [m]
         S_new[i, j] = ti.max(0.0, C + (S_0 - C) * ti.exp(-dx / h_sed))
 
 

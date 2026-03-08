@@ -31,18 +31,28 @@ def test_sediment_nonnegative():
 
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, 1.0, 1.1)
 
+    V = np.full((n, n), 10.0, dtype=np.float32)
+    fields.V.from_numpy(V)
+
     for _ in range(10):
         sediment_transport(
             fields.S,
             fields.S_new,
             fields.Q_out,
             fields.z,
+            fields.V,
             fields.flow_frac,
             fields.mask,
             dx=1.0,
             gamma=0.01,
             m_exp=1.0,
             n_exp=1.0,
+            K_max=0.1,
+            K_min=0.001,
+            P_min=0.001,
+            P_max=0.1,
+            v_low=5.0,
+            v_high=20.0,
         )
         swap_buffers(fields.S_new, fields.S)
 
@@ -68,6 +78,9 @@ def test_sediment_increases_downslope():
     fields.Q_out.from_numpy(Q)
     fields.S.from_numpy(np.zeros((n, n), dtype=np.float32))
 
+    V = np.full((n, n), 10.0, dtype=np.float32)
+    fields.V.from_numpy(V)
+
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, 1.0, 1.1)
 
     for _ in range(10):
@@ -76,12 +89,19 @@ def test_sediment_increases_downslope():
             fields.S_new,
             fields.Q_out,
             fields.z,
+            fields.V,
             fields.flow_frac,
             fields.mask,
             dx=1.0,
             gamma=0.01,
             m_exp=1.0,
             n_exp=1.0,
+            K_max=0.1,
+            K_min=0.001,
+            P_min=0.001,
+            P_max=0.1,
+            v_low=5.0,
+            v_high=20.0,
         )
         swap_buffers(fields.S_new, fields.S)
 
@@ -103,6 +123,9 @@ def test_sediment_zero_on_flat():
     fields.Q_out.from_numpy(np.zeros((n, n), dtype=np.float32))
     fields.S.from_numpy(np.zeros((n, n), dtype=np.float32))
 
+    V = np.full((n, n), 10.0, dtype=np.float32)
+    fields.V.from_numpy(V)
+
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, 1.0, 1.1)
 
     sediment_transport(
@@ -110,12 +133,19 @@ def test_sediment_zero_on_flat():
         fields.S_new,
         fields.Q_out,
         fields.z,
+        fields.V,
         fields.flow_frac,
         fields.mask,
         dx=1.0,
         gamma=0.01,
         m_exp=1.0,
         n_exp=1.0,
+        K_max=0.1,
+        K_min=0.001,
+        P_min=0.001,
+        P_max=0.1,
+        v_low=5.0,
+        v_high=20.0,
     )
 
     S_final = fields.S_new.to_numpy()

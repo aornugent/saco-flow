@@ -49,7 +49,7 @@ def vegetation_step(
         d: Mortality rate [1/day]
         Dp: Isotropic seed diffusion coefficient [m^2/day]
         dx: Cell spacing [m]
-        c1: Flow dispersal coefficient [1/m^2]
+        c1: Flow dispersal coefficient [day/m^2]
         c2: Flow dispersal saturation [1/day]
         dt: Timestep [days]
     """
@@ -86,7 +86,8 @@ def vegetation_step(
                 opp = ti.static(_OPP[k])
                 frac = flow_frac[ni, nj, opp]
                 if frac > 0.0:
-                    q_seed_full = c1 * Q_out[ni, nj] * V[ni, nj]
+                    q_per_w = Q_out[ni, nj] / dx  # [m^2/day]
+                    q_seed_full = c1 * q_per_w * V[ni, nj]
                     q_seed_cap = c2 * V[ni, nj]
                     q_seed = ti.min(q_seed_full, q_seed_cap)
                     d_flow += frac * q_seed
