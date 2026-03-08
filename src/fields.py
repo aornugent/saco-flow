@@ -4,8 +4,6 @@ from dataclasses import dataclass
 
 import taichi as ti
 
-from src.config import DTYPE
-
 
 @dataclass
 class Fields:
@@ -22,8 +20,8 @@ def allocate(n: int) -> Fields:
 
     Double-buffered: M (read) and M_new (write) for stencil operations.
     """
-    M = ti.field(DTYPE, shape=(n, n))
-    M_new = ti.field(DTYPE, shape=(n, n))
+    M = ti.field(ti.f32, shape=(n, n))
+    M_new = ti.field(ti.f32, shape=(n, n))
     mask = ti.field(ti.i32, shape=(n, n))
     return Fields(n=n, M=M, M_new=M_new, mask=mask)
 

@@ -1,42 +1,14 @@
-"""Benchmark runner CLI."""
+"""Benchmark runner: python -m benchmarks.run"""
 
-import argparse
-import traceback
+import taichi as ti
 
-from benchmarks.diffusion import DiffusionBenchmark
-
-BENCHMARKS = {
-    "diffusion": DiffusionBenchmark,
-}
+from benchmarks.diffusion import run as run_diffusion
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SACO-Flow Benchmark Runner")
-    parser.add_argument(
-        "benchmark",
-        nargs="?",
-        choices=[*BENCHMARKS, "all"],
-        default="all",
-        help="Benchmark to run (default: all)",
-    )
-    parser.add_argument(
-        "--profile", action="store_true", help="Enable Taichi kernel profiler"
-    )
-    args = parser.parse_args()
-
-    to_run = (
-        list(BENCHMARKS.values())
-        if args.benchmark == "all"
-        else [BENCHMARKS[args.benchmark]]
-    )
-
-    for bench_cls in to_run:
-        print(f"\nRunning {bench_cls.__name__}...")
-        try:
-            bench_cls(profile=args.profile).run()
-        except Exception as e:
-            print(f"Error: {e}")
-            traceback.print_exc()
+    ti.init(arch=ti.gpu, default_fp=ti.f32)
+    print("Diffusion stencil benchmark")
+    run_diffusion()
 
 
 if __name__ == "__main__":

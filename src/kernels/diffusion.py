@@ -10,17 +10,15 @@ Double-buffered: reads from M, writes to M_new. Caller must swap after.
 
 import taichi as ti
 
-from src.config import DTYPE
-
 
 @ti.kernel
 def diffusion_step(
     M: ti.template(),
     M_new: ti.template(),
     mask: ti.template(),
-    D: DTYPE,
-    dx: DTYPE,
-    dt: DTYPE,
+    D: ti.f32,
+    dx: ti.f32,
+    dt: ti.f32,
 ):
     """
     Apply 5-point Laplacian diffusion with Neumann (no-flux) boundaries.
@@ -51,7 +49,7 @@ def diffusion_step(
         val = M[i, j]
 
         # 5-point Laplacian with Neumann BC (only include active neighbors)
-        laplacian = ti.cast(0.0, DTYPE)
+        laplacian = ti.cast(0.0, ti.f32)
         for di, dj in ti.static([(-1, 0), (1, 0), (0, -1), (0, 1)]):
             ni, nj = i + di, j + dj
             if mask[ni, nj] == 1:
