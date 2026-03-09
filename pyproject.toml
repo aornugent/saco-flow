@@ -11,6 +11,9 @@ dependencies = [
     "taichi>=1.7.0",
 ]
 
+[tool.pytest.ini_options]
+markers = ["slow: long-running regression tests (60-year simulation)"]
+
 [tool.ruff]
 target-version = "py312"
 line-length = 88
