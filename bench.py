@@ -9,9 +9,9 @@ from src.fields import allocate
 from src.flow import compute_flow_fractions
 from src.simulate import step_day
 
-GRID_SIZES = [64, 128, 256, 512, 1024]
+GRID_SIZES = [256, 512, 1024, 2048, 4096, 10000]
 N_WARMUP = 3
-N_STEPS = 20
+N_STEPS = 10
 
 _DAILY = {
     "dx": 1.0,
