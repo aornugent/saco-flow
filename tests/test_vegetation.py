@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from src.fields import allocate, swap_buffers
+from src.fields import allocate
 from src.flow import compute_flow_fractions
 from src.vegetation import vegetation_step
 
@@ -27,7 +27,7 @@ def test_vegetation_growth_with_moisture():
     fields.M.from_numpy(M0)
     fields.Q_out.from_numpy(np.zeros((n, n), dtype=np.float32))
 
-    # Flat terrain → no flow dispersal
+    # Flat terrain -> no flow dispersal
     z = np.full((n, n), 10.0, dtype=np.float32)
     fields.z.from_numpy(z)
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, 1.0, 1.1)
@@ -133,7 +133,7 @@ def test_vegetation_diffusion_smooths():
             c2=1.0,
             dt=0.1,
         )
-        swap_buffers(fields.V_new, fields.V)
+        fields.swap("V")
 
     V_final = fields.V.to_numpy()
     mask = fields.mask.to_numpy()
@@ -178,7 +178,7 @@ def test_vegetation_nonnegative():
             c2=1.0,
             dt=0.1,
         )
-        swap_buffers(fields.V_new, fields.V)
+        fields.swap("V")
 
     V_final = fields.V.to_numpy()
     assert np.all(V_final >= 0.0), f"Negative vegetation: min={V_final.min()}"

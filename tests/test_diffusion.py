@@ -3,7 +3,7 @@
 import numpy as np
 
 from src.diffusion import compute_stable_dt, diffusion_step
-from src.fields import allocate, swap_buffers
+from src.fields import allocate
 
 
 def _setup_grid(n: int, initial_moisture: np.ndarray | None = None):
@@ -36,7 +36,7 @@ def test_diffusion_conserves_mass():
 
     for _ in range(200):
         diffusion_step(fields.M, fields.M_new, fields.mask, D, dx, dt)
-        swap_buffers(fields.M_new, fields.M)
+        fields.swap("M")
 
     final = fields.M.to_numpy()
     final_mass = float(np.sum(final * mask))
@@ -58,7 +58,7 @@ def test_diffusion_smooths_step():
 
     for _ in range(500):
         diffusion_step(fields.M, fields.M_new, fields.mask, D, dx, dt)
-        swap_buffers(fields.M_new, fields.M)
+        fields.swap("M")
 
     final = fields.M.to_numpy()
     mask = fields.mask.to_numpy()
@@ -82,7 +82,7 @@ def test_diffusion_nonnegative():
 
     for _ in range(100):
         diffusion_step(fields.M, fields.M_new, fields.mask, D, dx, dt)
-        swap_buffers(fields.M_new, fields.M)
+        fields.swap("M")
 
     final = fields.M.to_numpy()
     assert np.all(final >= 0.0), f"Negative values found: min={final.min()}"
@@ -107,7 +107,7 @@ def test_uniform_field_unchanged():
 
     for _ in range(50):
         diffusion_step(fields.M, fields.M_new, fields.mask, D, dx, dt)
-        swap_buffers(fields.M_new, fields.M)
+        fields.swap("M")
 
     final = fields.M.to_numpy()
     mask = fields.mask.to_numpy()

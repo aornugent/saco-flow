@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from src.fields import allocate, swap_buffers
+from src.fields import allocate
 from src.flow import compute_flow_fractions, route_water
 
 
@@ -87,6 +87,27 @@ def test_flow_fractions_steepest_gets_most():
     )
 
 
+def _route_water_call(fields, dx, n_manning=0.03, cn=1.0, alpha=0.0, k2=5.0, W0=0.2):
+    """Helper: call route_water with default infiltration params."""
+    route_water(
+        fields.Q_out,
+        fields.Q_out_new,
+        fields.R,
+        fields.I_inf,
+        fields.h,
+        fields.z,
+        fields.V,
+        fields.flow_frac,
+        fields.mask,
+        dx,
+        n_manning,
+        cn,
+        alpha,
+        k2,
+        W0,
+    )
+
+
 def test_route_water_rainfall_accumulates():
     """Uniform rainfall should produce increasing Q_out downslope."""
     n = 16
@@ -104,35 +125,21 @@ def test_route_water_rainfall_accumulates():
     dx, p = 1.0, 1.1
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, p)
 
-    # Initialize Q_out to zero
-    Q_out_np = np.zeros((n, n), dtype=np.float32)
-    fields.Q_out.from_numpy(Q_out_np)
-    I_np = np.zeros((n, n), dtype=np.float32)
-    fields.I_inf.from_numpy(I_np)
+    # Initialize Q_out to zero, V for infiltration calc (alpha=0 → no infiltration)
+    fields.Q_out.from_numpy(np.zeros((n, n), dtype=np.float32))
+    fields.I_inf.from_numpy(np.zeros((n, n), dtype=np.float32))
+    fields.V.from_numpy(np.full((n, n), 5.0, dtype=np.float32))
 
-    # Run a few routing steps for flow to propagate
+    # Run a few routing steps for flow to propagate (alpha=0 → no infiltration)
     for _ in range(20):
-        route_water(
-            fields.Q_out,
-            fields.Q_out_new,
-            fields.R,
-            fields.I_inf,
-            fields.h,
-            fields.z,
-            fields.flow_frac,
-            fields.mask,
-            dx,
-            0.03,
-            1.0,
-        )
-        swap_buffers(fields.Q_out_new, fields.Q_out)
+        _route_water_call(fields, dx, alpha=0.0)
+        fields.swap("Q_out")
 
     Q = fields.Q_out.to_numpy()
 
     # Downslope cells (higher row index) should have more discharge
     mid_col = n // 2
     Q_col = Q[1:-1, mid_col]
-    # Check increasing trend (allow some noise from boundary effects)
     assert Q_col[-1] > Q_col[0], (
         f"Q should increase downslope: top={Q_col[0]:.4f}, bottom={Q_col[-1]:.4f}"
     )
@@ -151,27 +158,56 @@ def test_route_water_nonnegative():
     fields.R.from_numpy(R)
     fields.I_inf.from_numpy(np.zeros((n, n), dtype=np.float32))
     fields.Q_out.from_numpy(np.zeros((n, n), dtype=np.float32))
+    fields.V.from_numpy(np.full((n, n), 5.0, dtype=np.float32))
 
     dx, p = 1.0, 1.1
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, p)
 
     for _ in range(10):
-        route_water(
-            fields.Q_out,
-            fields.Q_out_new,
-            fields.R,
-            fields.I_inf,
-            fields.h,
-            fields.z,
-            fields.flow_frac,
-            fields.mask,
-            dx,
-            0.03,
-            1.0,
-        )
-        swap_buffers(fields.Q_out_new, fields.Q_out)
+        _route_water_call(fields, dx, alpha=0.0)
+        fields.swap("Q_out")
 
     Q = fields.Q_out.to_numpy()
     h = fields.h.to_numpy()
     assert np.all(Q >= 0.0), f"Negative Q: min={Q.min()}"
     assert np.all(h >= 0.0), f"Negative h: min={h.min()}"
+
+
+def test_route_water_picard_with_infiltration():
+    """With infiltration enabled, Q_out should be reduced compared to no infiltration."""
+    n = 16
+    fields = _setup_grid(n)
+
+    z = np.zeros((n, n), dtype=np.float32)
+    for i in range(n):
+        z[i, :] = float(n - i)
+    fields.z.from_numpy(z)
+
+    R = np.full((n, n), 0.01, dtype=np.float32)
+    fields.R.from_numpy(R)
+    fields.Q_out.from_numpy(np.zeros((n, n), dtype=np.float32))
+    fields.I_inf.from_numpy(np.zeros((n, n), dtype=np.float32))
+    fields.V.from_numpy(np.full((n, n), 10.0, dtype=np.float32))
+
+    dx, p = 1.0, 1.1
+    compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, p)
+
+    # Run without infiltration
+    for _ in range(20):
+        _route_water_call(fields, dx, alpha=0.0)
+        fields.swap("Q_out")
+    Q_no_inf = fields.Q_out.to_numpy().copy()
+
+    # Reset and run with infiltration
+    fields.Q_out.from_numpy(np.zeros((n, n), dtype=np.float32))
+    for _ in range(20):
+        _route_water_call(fields, dx, alpha=1.0, k2=5.0, W0=0.2)
+        fields.swap("Q_out")
+    Q_with_inf = fields.Q_out.to_numpy()
+
+    mask = fields.mask.to_numpy()
+    interior = mask == 1
+    # Infiltration should reduce total discharge
+    assert np.sum(Q_with_inf[interior]) < np.sum(Q_no_inf[interior]), (
+        "Infiltration should reduce total discharge"
+    )

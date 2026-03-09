@@ -25,6 +25,13 @@ class Fields:
     mask: ti.Field  # active cell mask (1=active, 0=boundary)
     flow_frac: ti.Field  # MFD flow fractions to 8 neighbors (n, n, 8)
 
+    def swap(self, name: str):
+        """Swap read/write buffers in Python scope (no copy kernel)."""
+        a = getattr(self, name)
+        b = getattr(self, f"{name}_new")
+        setattr(self, name, b)
+        setattr(self, f"{name}_new", a)
+
 
 def allocate(n: int) -> Fields:
     """Allocate all Taichi fields for an n x n grid.
@@ -49,10 +56,3 @@ def allocate(n: int) -> Fields:
         mask=ti.field(ti.i32, shape=(n, n)),
         flow_frac=ti.field(ti.f32, shape=(n, n, 8)),
     )
-
-
-@ti.kernel
-def swap_buffers(src: ti.template(), dst: ti.template()):
-    """Copy src into dst (used after stencil write to *_new)."""
-    for i, j in src:
-        dst[i, j] = src[i, j]

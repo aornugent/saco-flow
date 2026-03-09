@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from src.fields import allocate, swap_buffers
+from src.fields import allocate
 from src.soil_moisture import infiltration_step, soil_moisture_step
 
 
@@ -159,7 +159,7 @@ def test_soil_moisture_nonnegative():
             rw=0.5,
             dt=1.0,
         )
-        swap_buffers(fields.M_new, fields.M)
+        fields.swap("M")
 
     M_final = fields.M.to_numpy()
     assert np.all(M_final >= 0.0), f"Negative moisture: min={M_final.min()}"

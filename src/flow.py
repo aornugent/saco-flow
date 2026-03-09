@@ -4,15 +4,12 @@ Flow routing kernels — MFD flow fractions and gather-based water routing.
 Multiple-flow direction (MFD) algorithm distributes outflow proportionally
 to downslope gradients raised to exponent p.  Water routing gathers incoming
 flow from upslope neighbors using previous-timestep Q_out (explicit).
+Picard iteration resolves the q-h-I-Q_out coupling within each cell.
 """
 
 import taichi as ti
 
-# 8-connected neighbor offsets and diagonal distances
-_OFFSETS = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
-_DIAG = [1.414, 1.0, 1.414, 1.0, 1.0, 1.414, 1.0, 1.414]
-# Opposite direction index: neighbor k's outflow toward (i,j) is stored at 7-k
-_OPP = [7, 6, 5, 4, 3, 2, 1, 0]
+from src.stencil import DIAG, OFFSETS, OPP
 
 
 @ti.kernel
@@ -41,11 +38,10 @@ def compute_flow_fractions(
                 flow_frac[i, j, k] = 0.0
             continue
 
-        # First pass: compute slope^p and store in flow_frac, accumulate total
         total = ti.cast(0.0, ti.f32)
         for k in ti.static(range(8)):
-            di, dj = ti.static(_OFFSETS[k])
-            dist = ti.static(_DIAG[k]) * dx
+            di, dj = ti.static(OFFSETS[k])
+            dist = ti.static(DIAG[k]) * dx
             ni, nj = i + di, j + dj
             s_pow = ti.cast(0.0, ti.f32)
             if mask[ni, nj] == 1:
@@ -55,7 +51,6 @@ def compute_flow_fractions(
             flow_frac[i, j, k] = s_pow
             total += s_pow
 
-        # Second pass: normalize to fractions
         for k in ti.static(range(8)):
             if total > 0.0:
                 flow_frac[i, j, k] /= total
@@ -71,31 +66,41 @@ def route_water(
     I_inf: ti.template(),
     h: ti.template(),
     z: ti.template(),
+    V: ti.template(),
     flow_frac: ti.template(),
     mask: ti.template(),
     dx: ti.f32,
     n_manning: ti.f32,
     cn: ti.f32,
+    alpha: ti.f32,
+    k2: ti.f32,
+    W0: ti.f32,
 ):
-    """Gather-based water routing: compute Q, h, and Q_out per cell.
+    """Gather-based water routing with Picard iteration for q-h-I-Q_out.
 
     1. Gather Q_in from upslope neighbors (previous-timestep Q_out)
-    2. Q = Q_in + R * dx^2
-    3. Q_out = max(0, Q - I_inf * dx^2)
-    4. h from Manning's kinematic wave approximation
+    2. Picard: q = (Q_in + Q_out) / (2*dx) [m^2/day]
+    3. h = (q * n_manning / (cn * sqrt(slope)))^(3/5)
+    4. I = alpha * h * (V + k2*W0) / (V + k2)
+    5. Q_out = max(0, Q_in + R*dx^2 - I*dx^2)
+    6. Writes Q_out_new, h, I_inf
 
     Args:
         Q_out: Previous-timestep outgoing discharge (read) [m^3/day]
         Q_out_new: Updated outgoing discharge (write) [m^3/day]
         R: Rainfall rate [m/day]
-        I_inf: Infiltration rate [m/day]
+        I_inf: Infiltration rate (write) [m/day]
         h: Flow depth (write) [m]
         z: Elevation field [m]
+        V: Vegetation density [%]
         flow_frac: MFD fractions (n, n, 8)
         mask: Active cell mask
         dx: Cell spacing [m]
         n_manning: Manning's roughness coefficient [s/m^(1/3)]
         cn: Constant for kinematic wave [m^(1/3)/s]
+        alpha: Infiltration capacity [1/day]
+        k2: Vegetation half-saturation for infiltration [%]
+        W0: Bare-soil infiltration fraction [-]
     """
     n = Q_out.shape[0]
     cell_area = dx * dx
@@ -104,36 +109,50 @@ def route_water(
         if mask[i, j] == 0:
             Q_out_new[i, j] = 0.0
             h[i, j] = 0.0
+            I_inf[i, j] = 0.0
             continue
 
         # Gather incoming flow from upslope neighbors
         Q_in = ti.cast(0.0, ti.f32)
         for k in ti.static(range(8)):
-            di, dj = ti.static(_OFFSETS[k])
+            di, dj = ti.static(OFFSETS[k])
             ni, nj = i + di, j + dj
             if mask[ni, nj] == 1:
-                opp = ti.static(_OPP[k])
+                opp = ti.static(OPP[k])
                 Q_in += flow_frac[ni, nj, opp] * Q_out[ni, nj]
 
-        Q_total = Q_in + R[i, j] * cell_area
-        Q_new = ti.max(0.0, Q_total - I_inf[i, j] * cell_area)
-        Q_out_new[i, j] = Q_new
-
-        # Max downslope gradient for Manning's equation
+        # Max downslope gradient (Lambda_max, floored at 1e-4)
         slope_max = ti.cast(1e-4, ti.f32)
         for k in ti.static(range(8)):
             if flow_frac[i, j, k] > 0.0:
-                di, dj = ti.static(_OFFSETS[k])
-                dist = ti.static(_DIAG[k]) * dx
+                di, dj = ti.static(OFFSETS[k])
+                dist = ti.static(DIAG[k]) * dx
                 ni, nj = i + di, j + dj
                 slope_k = (z[i, j] - z[ni, nj]) / dist
                 slope_max = ti.max(slope_max, slope_k)
 
-        # h = (Q_daily * n_manning / (cn * sqrt(slope)))^(3/5)
-        if Q_new > 0.0 and cn > 0.0:
-            h[i, j] = ti.pow(
-                Q_new * n_manning / (cn * ti.sqrt(slope_max)),
-                0.6,
-            )
-        else:
-            h[i, j] = 0.0
+        # Picard iteration: q -> h -> I -> Q_out (5 local iterations)
+        v = V[i, j]
+        Q_o = Q_out[i, j]  # initial guess from previous global pass
+        h_val = ti.cast(0.0, ti.f32)
+        I_val = ti.cast(0.0, ti.f32)
+
+        for _ in ti.static(range(5)):
+            # §2: q = (Q_in + Q_out) / (2*dx)  [m^2/day]
+            q = (Q_in + Q_o) / (2.0 * dx)
+            # h = (q * n_manning / (cn * sqrt(slope_max)))^(3/5)
+            if q > 0.0 and cn > 0.0:
+                h_val = ti.pow(
+                    q * n_manning / (cn * ti.sqrt(slope_max)),
+                    0.6,
+                )
+            else:
+                h_val = 0.0
+            # I = alpha * h * (V + k2*W0) / (V + k2)
+            I_val = alpha * h_val * (v + k2 * W0) / (v + k2)
+            # Q_out = max(0, Q_in + R*dx^2 - I*dx^2)
+            Q_o = ti.max(0.0, Q_in + R[i, j] * cell_area - I_val * cell_area)
+
+        Q_out_new[i, j] = Q_o
+        h[i, j] = h_val
+        I_inf[i, j] = I_val
