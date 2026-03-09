@@ -14,9 +14,8 @@ import numpy as np
 import pytest
 
 from src.fields import allocate
-from src.flow import accumulate_annual_Q, compute_flow_fractions
-from src.sediment import sediment_transport, update_elevation
-from src.simulate import step_day
+from src.flow import compute_flow_fractions
+from src.simulate import step_year
 
 # -- Domain ------------------------------------------------------------------
 
@@ -27,7 +26,7 @@ DAYS_PER_YEAR = 365
 SEED = 42
 VEG_THRESHOLD = 5.0  # [g/m²]
 
-# -- Parameters (paper Table I / Table II, converted to meter-based units) ----
+# -- Parameters (paper Table I / Table II) ------------------------------------
 
 # Flow routing
 P_MFD = 2.0  # MFD convergence exponent
@@ -39,13 +38,13 @@ ALPHA = 8.0  # [d⁻¹] (Table II)
 K2 = 18.0  # [g/m²] vegetation half-saturation for infiltration (Table I)
 W0 = 0.05  # [-] bare-soil infiltration fraction (Table I)
 
-# Soil moisture (mm → m conversion for k1, g_max)
-G_MAX = 5e-5  # [m·m²/(g·d)] = 0.05 mm·m²/(g·d) (Table I)
-K1 = 0.005  # [m] = 5.0 mm (Table I)
+# Soil moisture (paper units, mm-based — I_inf converted m→mm in step_day)
+G_MAX = 0.05  # [mm·m²/(g·d)] (Table I)
+K1 = 5.0  # [mm] (Table I)
 RW = 0.19  # [d⁻¹] (Table I)
 
-# Vegetation (c converted mm⁻¹ → m⁻¹ to match g_max conversion)
-C_VEG = 10000.0  # [g/m³] = 10.0 g/(mm·m²) (Table I)
+# Vegetation (paper units, mm-based)
+C_VEG = 10.0  # [g/(mm·m²)] (Table I)
 D_MORT = 0.13  # [d⁻¹] (Table II)
 DP = 0.0007  # [m²/d] (Table II)
 C1 = 0.005  # [mm⁻¹] (Table II) — code converts q to mm·m/day internally
@@ -109,8 +108,8 @@ def _setup_domain():
         V[i, j] = 1.0
     fields.V.from_numpy(V)
 
-    # Soil moisture: 0.1 mm = 0.0001 m everywhere
-    fields.M.from_numpy(np.full((N, N), 0.0001, dtype=np.float32))
+    # Soil moisture: 0.1 mm everywhere
+    fields.M.from_numpy(np.full((N, N), 0.1, dtype=np.float32))
 
     # S = 0, Q_out = 0 (zero-initialized by allocate)
 
@@ -134,10 +133,11 @@ def _count_bands(V: np.ndarray, mask: np.ndarray, j: int = 100) -> int:
     return count
 
 
-# -- Daily kwargs (subset of params for step_day) ----------------------------
+# -- Yearly kwargs for step_year ----------------------------------------------
 
-_DAILY = {
+_YEARLY = {
     "dx": DX,
+    "p": P_MFD,
     "n_manning": N_MANNING,
     "cn": CN,
     "alpha": ALPHA,
@@ -151,6 +151,15 @@ _DAILY = {
     "Dp": DP,
     "c1": C1,
     "c2": C2,
+    "gamma": GAMMA,
+    "m_exp": M_EXP,
+    "n_exp": N_EXP,
+    "K_max": K_MAX,
+    "K_min": K_MIN,
+    "P_min": P_MIN,
+    "P_max": P_MAX,
+    "v_low": V_LOW,
+    "v_high": V_HIGH,
     "dt": 1.0,
     "n_picard": 20,
 }
@@ -172,39 +181,8 @@ def test_banded_vegetation_60yr():
     rain = _generate_rainfall(SEED)
 
     for yr in range(YEARS):
-        fields.Q_annual.fill(0.0)
-
-        for day in range(DAYS_PER_YEAR):
-            # Set spatially-uniform daily rainfall
-            fields.R.fill(rain[yr * DAYS_PER_YEAR + day])
-            step_day(fields, **_DAILY)
-            accumulate_annual_Q(fields.Q_annual, fields.Q_daily, fields.mask)
-
-        # Annual: sediment transport → elevation update → recompute flow
-        sediment_transport(
-            fields.S,
-            fields.S_new,
-            fields.Q_annual,
-            fields.z,
-            fields.V,
-            fields.flow_frac,
-            fields.mask,
-            DX,
-            GAMMA,
-            M_EXP,
-            N_EXP,
-            K_MAX,
-            K_MIN,
-            P_MIN,
-            P_MAX,
-            V_LOW,
-            V_HIGH,
-        )
-        update_elevation(
-            fields.z, fields.S, fields.S_new, fields.flow_frac, fields.mask, DX
-        )
-        fields.swap("S")
-        compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, DX, P_MFD)
+        rain_yr = rain[yr * DAYS_PER_YEAR : (yr + 1) * DAYS_PER_YEAR]
+        step_year(fields, rain=rain_yr, **_YEARLY)
 
     # -- Metrics at t = 60 yr, interior cells only --
     V = fields.V.to_numpy()

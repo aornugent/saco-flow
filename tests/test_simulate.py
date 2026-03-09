@@ -21,7 +21,7 @@ def _setup_grid(n: int):
 
     fields.R.from_numpy(np.full((n, n), 0.01, dtype=np.float32))
     fields.V.from_numpy(np.full((n, n), 5.0, dtype=np.float32))
-    fields.M.from_numpy(np.full((n, n), 0.1, dtype=np.float32))
+    fields.M.from_numpy(np.full((n, n), 0.1, dtype=np.float32))  # [mm]
 
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, 1.0, 1.1)
     return fields
