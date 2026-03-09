@@ -92,6 +92,7 @@ def _route_water_call(fields, dx, n_manning=0.03, cn=1.0, alpha=0.0, k2=5.0, W0=
     route_water(
         fields.Q_out,
         fields.Q_out_new,
+        fields.Q_daily,
         fields.R,
         fields.I_inf,
         fields.h,
