@@ -62,14 +62,13 @@ def sediment_transport(
     """Gather-based sediment transport via stream power.
 
     1. Gather S_0 from upslope neighbors
-    2. q = Q_daily / dx  [m^2/day]
+    2. q = Q_daily / dx * 1000  [mm*m/day]
     3. Transport capacity C = gamma * q^m * slope^n
     4. h_sed = C / (beta * q * slope)
     5. S = C + (S_0 - C) * exp(-dx / h_sed)
 
-    Note: unit discharge q is in [m^2/day] throughout, not [mm*m/day] as
-    in the paper.  Parameters (gamma, K, P) must be scaled accordingly
-    when using values from the paper's Table I/II.
+    Unit discharge q is converted to [mm*m/day] to match the paper,
+    so Table I/II parameter values can be used directly.
 
     Args:
         S: Sediment flux read [kg/m/day]
@@ -80,7 +79,7 @@ def sediment_transport(
         flow_frac: MFD fractions (n, n, 8)
         mask: Active cell mask
         dx: Cell spacing [m]
-        gamma: Transport coefficient (scaled for q in [m^2/day])
+        gamma: Transport coefficient [-]
         m_exp: Discharge exponent [-]
         n_exp: Slope exponent [-]
         K_max, K_min: Erosion coefficient range [-]
@@ -113,8 +112,8 @@ def sediment_transport(
                 slope_k = (z[i, j] - z[ni, nj]) / dist
                 slope_max = ti.max(slope_max, slope_k)
 
-        # Unit discharge q [m^2/day]
-        q = Q_daily[i, j] / dx
+        # Unit discharge q [mm*m/day] — matches paper convention
+        q = Q_daily[i, j] / dx * 1000.0
 
         # Transport capacity C = gamma * q^m * slope^n
         C = gamma * ti.pow(ti.max(q, 0.0), m_exp) * ti.pow(slope_max, n_exp)

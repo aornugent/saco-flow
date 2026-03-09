@@ -33,8 +33,8 @@ def vegetation_step(
     D_flow = seed_in - seed_out  (net flow-directed dispersal)
     Q_seed = min(c1 * q * V, c2 * V)
 
-    Note: unit discharge q is in [m^2/day] throughout, not [mm*m/day] as
-    in the paper.  c1 must be scaled accordingly when using paper values.
+    Unit discharge q is converted to [mm*m/day] to match the paper,
+    so Table I/II parameter values can be used directly.
 
     Args:
         V: Vegetation density read [%]
@@ -49,7 +49,7 @@ def vegetation_step(
         d: Mortality rate [1/day]
         Dp: Isotropic seed diffusion coefficient [m^2/day]
         dx: Cell spacing [m]
-        c1: Flow dispersal coefficient [day/m^2]
+        c1: Flow dispersal coefficient [day/(mm*m)]
         c2: Flow dispersal saturation [1/day]
         dt: Timestep [days]
     """
@@ -87,12 +87,12 @@ def vegetation_step(
                 opp = ti.static(OPP[k])
                 frac = flow_frac[ni, nj, opp]
                 if frac > 0.0:
-                    q_per_w = Q_daily[ni, nj] / dx  # [m^2/day]
+                    q_per_w = Q_daily[ni, nj] / dx * 1000.0  # [mm*m/day]
                     q_seed = ti.min(c1 * q_per_w * V[ni, nj], c2 * V[ni, nj])
                     seed_in += frac * q_seed
 
         # Seed_out from this cell: Q_seed = min(c1 * q * V, c2 * V)
-        q_self = Q_daily[i, j] / dx  # [m^2/day]
+        q_self = Q_daily[i, j] / dx * 1000.0  # [mm*m/day]
         seed_out = ti.min(c1 * q_self * v, c2 * v)
 
         d_flow = seed_in - seed_out
