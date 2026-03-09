@@ -62,18 +62,19 @@ def sediment_transport(
     """Gather-based sediment transport via stream power.
 
     1. Gather S_0 from upslope neighbors
-    2. q = Q_daily / dx * 1000  [mm*m/day]
+    2. q = Q / dx  [m^2/yr]
     3. Transport capacity C = gamma * q^m * slope^n
     4. h_sed = C / (beta * q * slope)
     5. S = C + (S_0 - C) * exp(-dx / h_sed)
 
-    Unit discharge q is converted to [mm*m/day] to match the paper,
-    so Table I/II parameter values can be used directly.
+    Q is the annual cumulative discharge (summed daily Q over the year),
+    and q = Q/dx gives unit-width discharge in [m^2/yr] matching the
+    paper's LAPSUS convention so Table I/II parameter values apply directly.
 
     Args:
-        S: Sediment flux read [kg/m/day]
-        S_new: Sediment flux write [kg/m/day]
-        Q_daily: Cell-average discharge (Q_in+Q_out)/2 [m^3/day]
+        S: Sediment flux read [kg/m/yr]
+        S_new: Sediment flux write [kg/m/yr]
+        Q_daily: Annual cumulative discharge [m^3/yr]
         z: Elevation [m]
         V: Vegetation density [%]
         flow_frac: MFD fractions (n, n, 8)
@@ -112,8 +113,8 @@ def sediment_transport(
                 slope_k = (z[i, j] - z[ni, nj]) / dist
                 slope_max = ti.max(slope_max, slope_k)
 
-        # Unit discharge q [mm*m/day] — matches paper convention
-        q = Q_daily[i, j] / dx * 1000.0
+        # Unit discharge q [m^2/yr] — annual cumulative, matches paper convention
+        q = Q_daily[i, j] / dx
 
         # Transport capacity C = gamma * q^m * slope^n
         C = gamma * ti.pow(ti.max(q, 0.0), m_exp) * ti.pow(slope_max, n_exp)
@@ -148,8 +149,8 @@ def update_elevation(
 
     Args:
         z: Elevation field (read/write) [m]
-        S: Pre-transport sediment flux (read) [kg/m/day]
-        S_new: Post-transport sediment flux (read) [kg/m/day]
+        S: Pre-transport sediment flux (read) [kg/m/yr]
+        S_new: Post-transport sediment flux (read) [kg/m/yr]
         flow_frac: MFD fractions (n, n, 8)
         mask: Active cell mask
         dx: Cell spacing [m]

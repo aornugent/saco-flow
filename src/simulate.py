@@ -1,7 +1,7 @@
 """Daily/annual simulation orchestrator per Baartman et al. (2018) section 7."""
 
 from src.fields import Fields
-from src.flow import compute_flow_fractions, route_water
+from src.flow import accumulate_annual_Q, compute_flow_fractions, route_water
 from src.sediment import sediment_transport, update_elevation
 from src.soil_moisture import soil_moisture_step
 from src.vegetation import vegetation_step
@@ -185,15 +185,17 @@ def step_year(
         "n_picard": n_picard,
     }
 
-    # Daily loop
+    # Daily loop — accumulate Q_daily into Q_annual for sediment transport
+    fields.Q_annual.fill(0.0)
     for _ in range(days_per_year):
         step_day(fields, **daily_kwargs)
+        accumulate_annual_Q(fields.Q_annual, fields.Q_daily, fields.mask)
 
-    # section 5: Sediment transport (annual, uses end-of-year Q_daily)
+    # section 5: Sediment transport (annual, uses cumulative annual Q)
     sediment_transport(
         fields.S,
         fields.S_new,
-        fields.Q_daily,
+        fields.Q_annual,
         fields.z,
         fields.V,
         fields.flow_frac,

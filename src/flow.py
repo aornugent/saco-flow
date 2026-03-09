@@ -13,6 +13,25 @@ from src.stencil import DIAG, OFFSETS, OPP
 
 
 @ti.kernel
+def accumulate_annual_Q(
+    Q_annual: ti.template(),
+    Q_daily: ti.template(),
+    mask: ti.template(),
+):
+    """Add daily cell-average discharge into annual accumulator.
+
+    Args:
+        Q_annual: Running annual total (read/write) [m^3/yr]
+        Q_daily: Daily cell-average discharge [m^3/day]
+        mask: Active cell mask
+    """
+    n = Q_annual.shape[0]
+    for i, j in ti.ndrange(n, n):
+        if mask[i, j] == 1:
+            Q_annual[i, j] += Q_daily[i, j]
+
+
+@ti.kernel
 def compute_flow_fractions(
     z: ti.template(),
     mask: ti.template(),
