@@ -62,6 +62,7 @@ def compute_flow_fractions(
 def route_water(
     Q_out: ti.template(),
     Q_out_new: ti.template(),
+    Q_daily: ti.template(),
     R: ti.template(),
     I_inf: ti.template(),
     h: ti.template(),
@@ -83,11 +84,13 @@ def route_water(
     3. h = (q * n_manning / (cn * sqrt(slope)))^(3/5)
     4. I = alpha * h * (V + k2*W0) / (V + k2)
     5. Q_out = max(0, Q_in + R*dx^2 - I*dx^2)
-    6. Writes Q_out_new, h, I_inf
+    6. Q_daily = (Q_in + Q_out) / 2  (Eq 12)
+    7. Writes Q_out_new, Q_daily, h, I_inf
 
     Args:
         Q_out: Previous-timestep outgoing discharge (read) [m^3/day]
         Q_out_new: Updated outgoing discharge (write) [m^3/day]
+        Q_daily: Cell-average discharge (write) [m^3/day]
         R: Rainfall rate [m/day]
         I_inf: Infiltration rate (write) [m/day]
         h: Flow depth (write) [m]
@@ -108,6 +111,7 @@ def route_water(
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
         if mask[i, j] == 0:
             Q_out_new[i, j] = 0.0
+            Q_daily[i, j] = 0.0
             h[i, j] = 0.0
             I_inf[i, j] = 0.0
             continue
@@ -154,5 +158,6 @@ def route_water(
             Q_o = ti.max(0.0, Q_in + R[i, j] * cell_area - I_val * cell_area)
 
         Q_out_new[i, j] = Q_o
+        Q_daily[i, j] = (Q_in + Q_o) / 2.0  # Eq 12
         h[i, j] = h_val
         I_inf[i, j] = I_val

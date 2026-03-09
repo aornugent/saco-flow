@@ -53,6 +53,7 @@ def step_day(
         route_water(
             fields.Q_out,
             fields.Q_out_new,
+            fields.Q_daily,
             fields.R,
             fields.I_inf,
             fields.h,
@@ -88,7 +89,7 @@ def step_day(
         fields.V,
         fields.V_new,
         fields.M,
-        fields.Q_out,
+        fields.Q_daily,
         fields.flow_frac,
         fields.mask,
         c,
@@ -188,11 +189,11 @@ def step_year(
     for _ in range(days_per_year):
         step_day(fields, **daily_kwargs)
 
-    # section 5: Sediment transport (annual, uses end-of-year Q_out)
+    # section 5: Sediment transport (annual, uses end-of-year Q_daily)
     sediment_transport(
         fields.S,
         fields.S_new,
-        fields.Q_out,
+        fields.Q_daily,
         fields.z,
         fields.V,
         fields.flow_frac,

@@ -17,6 +17,7 @@ class Fields:
     V_new: ti.Field  # vegetation density write [%]
     Q_out: ti.Field  # outgoing discharge read [m^3/day]
     Q_out_new: ti.Field  # outgoing discharge write [m^3/day]
+    Q_daily: ti.Field  # cell-average discharge (Q_in+Q_out)/2 [m^3/day]
     h: ti.Field  # flow depth [m]
     I_inf: ti.Field  # infiltration rate [m/day]
     R: ti.Field  # rainfall rate [m/day]
@@ -48,6 +49,7 @@ def allocate(n: int) -> Fields:
         V_new=ti.field(ti.f32, shape=(n, n)),
         Q_out=ti.field(ti.f32, shape=(n, n)),
         Q_out_new=ti.field(ti.f32, shape=(n, n)),
+        Q_daily=ti.field(ti.f32, shape=(n, n)),
         h=ti.field(ti.f32, shape=(n, n)),
         I_inf=ti.field(ti.f32, shape=(n, n)),
         R=ti.field(ti.f32, shape=(n, n)),

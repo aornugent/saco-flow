@@ -26,7 +26,7 @@ def test_sediment_nonnegative():
     fields.z.from_numpy(z)
 
     Q = rng.uniform(0.0, 1.0, (n, n)).astype(np.float32)
-    fields.Q_out.from_numpy(Q)
+    fields.Q_daily.from_numpy(Q)
     fields.S.from_numpy(np.zeros((n, n), dtype=np.float32))
 
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, 1.0, 1.1)
@@ -38,7 +38,7 @@ def test_sediment_nonnegative():
         sediment_transport(
             fields.S,
             fields.S_new,
-            fields.Q_out,
+            fields.Q_daily,
             fields.z,
             fields.V,
             fields.flow_frac,
@@ -75,7 +75,7 @@ def test_sediment_increases_downslope():
     Q = np.zeros((n, n), dtype=np.float32)
     for i in range(n):
         Q[i, :] = float(i) * 0.1
-    fields.Q_out.from_numpy(Q)
+    fields.Q_daily.from_numpy(Q)
     fields.S.from_numpy(np.zeros((n, n), dtype=np.float32))
 
     V = np.full((n, n), 10.0, dtype=np.float32)
@@ -87,7 +87,7 @@ def test_sediment_increases_downslope():
         sediment_transport(
             fields.S,
             fields.S_new,
-            fields.Q_out,
+            fields.Q_daily,
             fields.z,
             fields.V,
             fields.flow_frac,
@@ -107,8 +107,9 @@ def test_sediment_increases_downslope():
 
     S_final = fields.S.to_numpy()
     mid_col = n // 2
-    # Downslope (higher row) should have more sediment
-    assert S_final[n - 2, mid_col] > S_final[2, mid_col], (
+    # Compare interior cells away from boundary (row n-2 has no downslope
+    # neighbor due to mask, so its slope_max ≈ 0 and capacity collapses)
+    assert S_final[n // 2, mid_col] > S_final[2, mid_col], (
         "Sediment should accumulate downslope"
     )
 
@@ -120,7 +121,7 @@ def test_sediment_zero_on_flat():
 
     z = np.full((n, n), 10.0, dtype=np.float32)
     fields.z.from_numpy(z)
-    fields.Q_out.from_numpy(np.zeros((n, n), dtype=np.float32))
+    fields.Q_daily.from_numpy(np.zeros((n, n), dtype=np.float32))
     fields.S.from_numpy(np.zeros((n, n), dtype=np.float32))
 
     V = np.full((n, n), 10.0, dtype=np.float32)
@@ -131,7 +132,7 @@ def test_sediment_zero_on_flat():
     sediment_transport(
         fields.S,
         fields.S_new,
-        fields.Q_out,
+        fields.Q_daily,
         fields.z,
         fields.V,
         fields.flow_frac,
