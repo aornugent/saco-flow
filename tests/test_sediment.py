@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from src.fields import allocate, swap_buffers
+from src.fields import allocate
 from src.flow import compute_flow_fractions
 from src.sediment import sediment_transport, update_elevation
 
@@ -54,7 +54,7 @@ def test_sediment_nonnegative():
             v_low=5.0,
             v_high=20.0,
         )
-        swap_buffers(fields.S_new, fields.S)
+        fields.swap("S")
 
     S_final = fields.S.to_numpy()
     assert np.all(S_final >= 0.0), f"Negative sediment: min={S_final.min()}"
@@ -103,7 +103,7 @@ def test_sediment_increases_downslope():
             v_low=5.0,
             v_high=20.0,
         )
-        swap_buffers(fields.S_new, fields.S)
+        fields.swap("S")
 
     S_final = fields.S.to_numpy()
     mid_col = n // 2
@@ -154,49 +154,8 @@ def test_sediment_zero_on_flat():
     )
 
 
-def test_elevation_erodes_bare_soil():
-    """Bare soil (low V) should erode under flow (z decreases)."""
-    n = 8
-    fields = _setup_grid(n)
-
-    # Sloped surface
-    z = np.zeros((n, n), dtype=np.float32)
-    for i in range(n):
-        z[i, :] = float(n - i)
-    z0 = z.copy()
-    fields.z.from_numpy(z)
-
-    V = np.full((n, n), 1.0, dtype=np.float32)  # bare soil (V <= 5 → K=max)
-    fields.V.from_numpy(V)
-    Q = np.full((n, n), 0.5, dtype=np.float32)
-    fields.Q_out.from_numpy(Q)
-
-    update_elevation(
-        fields.z,
-        fields.Q_out,
-        fields.V,
-        fields.mask,
-        dx=1.0,
-        K_max=0.1,
-        K_min=0.001,
-        P_min=0.001,
-        P_max=0.1,
-        v_low=5.0,
-        v_high=20.0,
-        dt=1.0,
-    )
-
-    z_final = fields.z.to_numpy()
-    mask = fields.mask.to_numpy()
-
-    # With V=1 (bare): K=K_max=0.1, P=P_min=0.001 → net erosion
-    # dz = dt * (P - K) * Q * slope < 0
-    interior = (mask == 1) & (z0 > 1.1)  # cells with slope > 0
-    assert np.all(z_final[interior] < z0[interior]), "Bare soil should erode under flow"
-
-
-def test_elevation_deposits_with_vegetation():
-    """Dense vegetation (high V) should favor deposition (z increases)."""
+def test_elevation_decreases_on_erosion():
+    """z should decrease when S_new > gathered S_0 (net erosion)."""
     n = 8
     fields = _setup_grid(n)
 
@@ -206,31 +165,51 @@ def test_elevation_deposits_with_vegetation():
     z0 = z.copy()
     fields.z.from_numpy(z)
 
-    V = np.full((n, n), 30.0, dtype=np.float32)  # dense veg (V >= 20 → P=max)
-    fields.V.from_numpy(V)
-    Q = np.full((n, n), 0.5, dtype=np.float32)
-    fields.Q_out.from_numpy(Q)
+    compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, 1.0, 1.1)
+
+    # S = 0 everywhere -> gathered S_0 ~ 0
+    fields.S.from_numpy(np.zeros((n, n), dtype=np.float32))
+    # S_new > 0 -> erosion (outgoing > incoming)
+    S_new = np.full((n, n), 1.0, dtype=np.float32)
+    fields.S_new.from_numpy(S_new)
 
     update_elevation(
-        fields.z,
-        fields.Q_out,
-        fields.V,
-        fields.mask,
-        dx=1.0,
-        K_max=0.1,
-        K_min=0.001,
-        P_min=0.001,
-        P_max=0.1,
-        v_low=5.0,
-        v_high=20.0,
-        dt=1.0,
+        fields.z, fields.S, fields.S_new, fields.flow_frac, fields.mask, 1.0
     )
 
     z_final = fields.z.to_numpy()
     mask = fields.mask.to_numpy()
-
-    # With V=30 (dense): K=K_min=0.001, P=P_max=0.1 → net deposition
-    interior = (mask == 1) & (z0 > 1.1)
-    assert np.all(z_final[interior] > z0[interior]), (
-        "Dense vegetation should cause deposition"
+    interior = mask == 1
+    # S_0 ~ 0, S_new = 1 -> dz = (0 - 1)/1 = -1 -> erosion
+    assert np.all(z_final[interior] <= z0[interior]), (
+        "Erosion should decrease elevation"
     )
+
+
+def test_elevation_increases_on_deposition():
+    """z should increase when gathered S_0 > S_new (net deposition)."""
+    n = 8
+    fields = _setup_grid(n)
+
+    z = np.zeros((n, n), dtype=np.float32)
+    for i in range(n):
+        z[i, :] = float(n - i)
+    z0 = z.copy()
+    fields.z.from_numpy(z)
+
+    compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, 1.0, 1.1)
+
+    # S has values -> neighbors gather S_0 > 0
+    S = np.full((n, n), 5.0, dtype=np.float32)
+    fields.S.from_numpy(S)
+    # S_new = 0 -> net deposition
+    fields.S_new.from_numpy(np.zeros((n, n), dtype=np.float32))
+
+    update_elevation(
+        fields.z, fields.S, fields.S_new, fields.flow_frac, fields.mask, 1.0
+    )
+
+    z_final = fields.z.to_numpy()
+    # A downslope cell that receives flow should have z increase
+    mid = n // 2
+    assert z_final[mid, mid] >= z0[mid, mid], "Deposition should increase elevation"

@@ -3,14 +3,12 @@ Sediment transport and elevation update kernels.
 
 Gather-based: each cell collects sediment from upslope neighbors,
 computes transport capacity via stream power, and updates elevation
-from net erosion/deposition.
+from sediment flux divergence (S_0 - S) / dx.
 """
 
 import taichi as ti
 
-_OFFSETS = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
-_OPP = [7, 6, 5, 4, 3, 2, 1, 0]
-_DIAG = [1.414, 1.0, 1.414, 1.0, 1.0, 1.414, 1.0, 1.414]
+from src.stencil import DIAG, OFFSETS, OPP
 
 
 @ti.func
@@ -64,9 +62,10 @@ def sediment_transport(
     """Gather-based sediment transport via stream power.
 
     1. Gather S_0 from upslope neighbors
-    2. Compute transport capacity C = gamma * Q^m * slope^n
-    3. h_sed = C / (K*q*slope) for erosion, C / (P*q*slope) for deposition
-    4. S = C + (S_0 - C) * exp(-dx/h_sed)
+    2. q = Q_out / dx  [m^2/day]
+    3. Transport capacity C = gamma * q^m * slope^n
+    4. h_sed = C / (beta * q * slope)
+    5. S = C + (S_0 - C) * exp(-dx / h_sed)
 
     Args:
         S: Sediment flux read [kg/m/day]
@@ -77,7 +76,7 @@ def sediment_transport(
         flow_frac: MFD fractions (n, n, 8)
         mask: Active cell mask
         dx: Cell spacing [m]
-        gamma: Transport coefficient [kg*day^(m-1)/m^(3m+n)]
+        gamma: Transport coefficient
         m_exp: Discharge exponent [-]
         n_exp: Slope exponent [-]
         K_max, K_min: Erosion coefficient range [-]
@@ -94,92 +93,76 @@ def sediment_transport(
         # Gather incoming sediment from upslope
         S_0 = ti.cast(0.0, ti.f32)
         for k in ti.static(range(8)):
-            di, dj = ti.static(_OFFSETS[k])
+            di, dj = ti.static(OFFSETS[k])
             ni, nj = i + di, j + dj
             if mask[ni, nj] == 1:
-                opp = ti.static(_OPP[k])
+                opp = ti.static(OPP[k])
                 S_0 += flow_frac[ni, nj, opp] * S[ni, nj]
 
         # Max downslope gradient
         slope_max = ti.cast(1e-4, ti.f32)
         for k in ti.static(range(8)):
             if flow_frac[i, j, k] > 0.0:
-                di, dj = ti.static(_OFFSETS[k])
-                dist = ti.static(_DIAG[k]) * dx
+                di, dj = ti.static(OFFSETS[k])
+                dist = ti.static(DIAG[k]) * dx
                 ni, nj = i + di, j + dj
                 slope_k = (z[i, j] - z[ni, nj]) / dist
                 slope_max = ti.max(slope_max, slope_k)
 
-        # Transport capacity
-        q = Q_out[i, j]
+        # Unit discharge q [m^2/day]
+        q = Q_out[i, j] / dx
+
+        # Transport capacity C = gamma * q^m * slope^n
         C = gamma * ti.pow(ti.max(q, 0.0), m_exp) * ti.pow(slope_max, n_exp)
 
-        # Adaptation length: h = C / (detachment or deposition capacity)
+        # Adaptation length: h_sed = C / (beta * q * slope_max)
         kp = _erosion_deposition_coeffs(
             V[i, j], K_max, K_min, P_min, P_max, v_low, v_high
         )
-        denom = q * slope_max
-        coeff = kp[1]  # deposition regime by default
+        coeff = kp[1]  # deposition by default
         if S_0 < C:
-            coeff = kp[0]  # erosion regime
-        h_sed = ti.max(C / ti.max(coeff * denom, 1e-10), dx)  # [m]
+            coeff = kp[0]  # erosion
+        h_sed = ti.max(C / ti.max(coeff * q * slope_max, 1e-10), dx)
         S_new[i, j] = ti.max(0.0, C + (S_0 - C) * ti.exp(-dx / h_sed))
 
 
 @ti.kernel
 def update_elevation(
     z: ti.template(),
-    Q_out: ti.template(),
-    V: ti.template(),
+    S: ti.template(),
+    S_new: ti.template(),
+    flow_frac: ti.template(),
     mask: ti.template(),
     dx: ti.f32,
-    K_max: ti.f32,
-    K_min: ti.f32,
-    P_min: ti.f32,
-    P_max: ti.f32,
-    v_low: ti.f32,
-    v_high: ti.f32,
-    dt: ti.f32,
 ):
-    """Update elevation from erosion and deposition.
+    """Update elevation from sediment flux divergence.
 
-    dz/dt = P*Q*slope - K*Q*slope  (net deposition - erosion)
+    z += (S_0 - S_new) / dx
 
-    K, P depend on vegetation density via logarithmic interpolation.
+    S holds pre-transport flux (gather S_0 from neighbors).
+    S_new holds post-transport flux.
+    Call before swapping S buffers.
 
     Args:
-        z: Elevation field (read/write, point-wise) [m]
-        Q_out: Water discharge [m^3/day]
-        V: Vegetation density [%]
+        z: Elevation field (read/write) [m]
+        S: Pre-transport sediment flux (read) [kg/m/day]
+        S_new: Post-transport sediment flux (read) [kg/m/day]
+        flow_frac: MFD fractions (n, n, 8)
         mask: Active cell mask
         dx: Cell spacing [m]
-        K_max, K_min: Erosion coefficient range [-]
-        P_min, P_max: Deposition coefficient range [-]
-        v_low: Vegetation threshold for max erosion [%]
-        v_high: Vegetation threshold for min erosion [%]
-        dt: Timestep [days]
     """
     n = z.shape[0]
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
         if mask[i, j] == 0:
             continue
 
-        kp = _erosion_deposition_coeffs(
-            V[i, j], K_max, K_min, P_min, P_max, v_low, v_high
-        )
-        K = kp[0]
-        P = kp[1]
-
-        q = Q_out[i, j]
-        # Compute local slope (max downslope)
-        slope = ti.cast(1e-4, ti.f32)
-        for di, dj in ti.static([(-1, 0), (1, 0), (0, -1), (0, 1)]):
+        # Gather incoming sediment S_0 from pre-transport flux
+        S_0 = ti.cast(0.0, ti.f32)
+        for k in ti.static(range(8)):
+            di, dj = ti.static(OFFSETS[k])
             ni, nj = i + di, j + dj
             if mask[ni, nj] == 1:
-                s = (z[i, j] - z[ni, nj]) / dx
-                slope = ti.max(slope, s)
+                opp = ti.static(OPP[k])
+                S_0 += flow_frac[ni, nj, opp] * S[ni, nj]
 
-        deposition = P * q * slope
-        erosion = K * q * slope
-
-        z[i, j] += dt * (deposition - erosion)
+        z[i, j] += (S_0 - S_new[i, j]) / dx

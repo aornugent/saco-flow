@@ -2,16 +2,12 @@
 Vegetation dynamics kernel.
 
 Growth, mortality, isotropic seed dispersal (diffusive Laplacian),
-and flow-directed seed dispersal (gather from upslope).
+and flow-directed seed dispersal (gather from upslope minus outgoing).
 """
 
 import taichi as ti
 
-_OFFSETS = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
-_OPP = [7, 6, 5, 4, 3, 2, 1, 0]
-
-# 4-connected neighbors for isotropic Laplacian
-_CARD = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+from src.stencil import CARD, OFFSETS, OPP
 
 
 @ti.kernel
@@ -34,7 +30,8 @@ def vegetation_step(
 ):
     """Update vegetation density: growth + mortality + seed dispersal.
 
-    V_new = V + dt * (G - D + D_iso + D_flow)
+    D_flow = seed_in - seed_out  (net flow-directed dispersal)
+    Q_seed = min(c1 * q * V, c2 * V)
 
     Args:
         V: Vegetation density read [%]
@@ -72,25 +69,30 @@ def vegetation_step(
 
         # Isotropic seed dispersal: D_iso = Dp * laplacian(V)
         laplacian = ti.cast(0.0, ti.f32)
-        for di, dj in ti.static(_CARD):
+        for di, dj in ti.static(CARD):
             ni, nj = i + di, j + dj
             if mask[ni, nj] == 1:
                 laplacian += V[ni, nj] - v
 
-        # Flow-directed seed dispersal: gather from upslope
-        d_flow = ti.cast(0.0, ti.f32)
+        # Flow-directed seed dispersal: D_flow = seed_in - seed_out
+        # Gather seed_in from upslope neighbors
+        seed_in = ti.cast(0.0, ti.f32)
         for k in ti.static(range(8)):
-            di, dj = ti.static(_OFFSETS[k])
+            di, dj = ti.static(OFFSETS[k])
             ni, nj = i + di, j + dj
             if mask[ni, nj] == 1:
-                opp = ti.static(_OPP[k])
+                opp = ti.static(OPP[k])
                 frac = flow_frac[ni, nj, opp]
                 if frac > 0.0:
                     q_per_w = Q_out[ni, nj] / dx  # [m^2/day]
-                    q_seed_full = c1 * q_per_w * V[ni, nj]
-                    q_seed_cap = c2 * V[ni, nj]
-                    q_seed = ti.min(q_seed_full, q_seed_cap)
-                    d_flow += frac * q_seed
+                    q_seed = ti.min(c1 * q_per_w * V[ni, nj], c2 * V[ni, nj])
+                    seed_in += frac * q_seed
+
+        # Seed_out from this cell: Q_seed = min(c1 * q * V, c2 * V)
+        q_self = Q_out[i, j] / dx  # [m^2/day]
+        seed_out = ti.min(c1 * q_self * v, c2 * v)
+
+        d_flow = seed_in - seed_out
 
         V_new[i, j] = ti.max(
             0.0,
