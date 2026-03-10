@@ -29,6 +29,11 @@ ruff check --fix . && ruff format .
 - Test on CPU with `debug=True`, bench on GPU without
 - Each unique `ti.template()` arg triggers a compile — keep variants small and exercise them in warmup
 
+## Numerics
+
+- Constitutive relations drive the iteration; conservation laws close the books
+- When a quantity is determined by a conservation law, compute it from the balance, not the constitutive relation
+
 ## Style
 
 - Write the physics, not the plumbing
