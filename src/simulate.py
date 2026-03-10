@@ -1,10 +1,19 @@
 """Daily/annual simulation orchestrator per Baartman et al. (2018) section 7."""
 
+import taichi as ti
+
 from src.fields import Fields
 from src.flow import accumulate_annual_Q, compute_flow_fractions, route_water
 from src.sediment import sediment_transport, update_elevation
 from src.soil_moisture import soil_moisture_step
 from src.vegetation import vegetation_step
+
+
+@ti.kernel
+def _scale_field(f: ti.template(), s: ti.f32):
+    """Multiply every element of a 2-D field by scalar s (in-place, point-wise)."""
+    for i, j in f:
+        f[i, j] *= s
 
 
 def step_day(
@@ -70,6 +79,10 @@ def step_day(
         )
         fields.swap("Q_out")
 
+    # Interface: flow routing produces I_inf in m/day;
+    # soil moisture / vegetation subsystem works in mm (paper units).
+    _scale_field(fields.I_inf, 1000.0)
+
     # section 3: Soil moisture (no lateral diffusion per paper)
     soil_moisture_step(
         fields.M,
@@ -132,6 +145,7 @@ def step_year(
     P_max: float,
     v_low: float,
     v_high: float,
+    rain=None,
     days_per_year: int = 365,
     dt: float = 1.0,
     n_picard: int = 20,
@@ -147,13 +161,13 @@ def step_year(
         alpha: Infiltration capacity [1/day]
         k2: Vegetation half-saturation for infiltration [%]
         W0: Bare-soil infiltration fraction [-]
-        g_max: Maximum growth rate [1/day]
-        k1: Half-saturation for moisture [m]
+        g_max: Maximum growth rate [mm·m²/(g·d)]
+        k1: Half-saturation for moisture [mm]
         rw: Soil moisture loss rate [1/day]
-        c: Vegetation growth scaling [-]
+        c: Vegetation growth scaling [g/(mm·m²)]
         d: Mortality rate [1/day]
         Dp: Isotropic seed diffusion [m^2/day]
-        c1: Flow dispersal coefficient [day/m^2]
+        c1: Flow dispersal coefficient [day/(mm·m)]
         c2: Flow dispersal saturation [1/day]
         gamma: Sediment transport coefficient
         m_exp: Discharge exponent [-]
@@ -162,6 +176,8 @@ def step_year(
         P_min, P_max: Deposition coefficient range [-]
         v_low: Vegetation threshold for max erosion [%]
         v_high: Vegetation threshold for min erosion [%]
+        rain: Daily rainfall array, shape (days_per_year,) [m/day].
+              If None, fields.R must be preset.
         days_per_year: Number of daily steps per year
         dt: Daily timestep [days]
         n_picard: Global Picard iterations for water routing
@@ -187,7 +203,9 @@ def step_year(
 
     # Daily loop — accumulate Q_daily into Q_annual for sediment transport
     fields.Q_annual.fill(0.0)
-    for _ in range(days_per_year):
+    for day in range(days_per_year):
+        if rain is not None:
+            fields.R.fill(rain[day])
         step_day(fields, **daily_kwargs)
         accumulate_annual_Q(fields.Q_annual, fields.Q_daily, fields.mask)
 
