@@ -185,9 +185,9 @@ def route_water(
             )
         else:
             h_val = 0.0
-        I_val = alpha * h_val * (v + k2 * W0) / (v + k2)
 
         Q_out_new[i, j] = Q_o
         Q_daily[i, j] = (Q_in + Q_o) / 2.0  # Eq 12
         h[i, j] = h_val
-        I_inf[i, j] = I_val
+        # Actual infiltration from mass balance (clamped Q_o respects water availability)
+        I_inf[i, j] = (Q_in + R[i, j] * cell_area - Q_o) / cell_area
