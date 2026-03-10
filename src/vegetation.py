@@ -99,5 +99,5 @@ def vegetation_step(
 
         V_new[i, j] = ti.max(
             0.0,
-            v + dt * (growth - mortality + d_flow) + coeff_iso * laplacian,
+            v + dt * (growth - mortality + d_flow / dx) + coeff_iso * laplacian,
         )

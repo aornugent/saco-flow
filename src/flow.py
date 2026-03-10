@@ -176,6 +176,17 @@ def route_water(
             # Q_out = max(0, Q_in + R*dx^2 - I*dx^2)
             Q_o = ti.max(0.0, Q_in + R[i, j] * cell_area - I_val * cell_area)
 
+        # Final consistent recompute from converged Q_o
+        q = (Q_in + Q_o) / (2.0 * dx)
+        if q > 0.0 and cn > 0.0:
+            h_val = ti.pow(
+                q * n_manning / (cn * ti.sqrt(slope_max)),
+                0.6,
+            )
+        else:
+            h_val = 0.0
+        I_val = alpha * h_val * (v + k2 * W0) / (v + k2)
+
         Q_out_new[i, j] = Q_o
         Q_daily[i, j] = (Q_in + Q_o) / 2.0  # Eq 12
         h[i, j] = h_val
