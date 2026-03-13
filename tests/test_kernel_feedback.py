@@ -8,8 +8,9 @@ import numpy as np
 import pytest
 
 from src.fields import allocate
-from src.flow import compute_flow_fractions
-from src.simulate import step_day, step_year
+from src.flow import compute_flow_fractions, route_water
+from src.simulate import _scale_field, step_year
+from src.soil_moisture import soil_moisture_step
 
 
 def _setup_grid(n):
@@ -98,8 +99,11 @@ def test_positive_feedback_vegetation_sustains():
 
         for _ in range(5):
             step_year(
-                fields, rain=rain, days_per_year=days_per_year,
-                **_DAILY, **_ANNUAL,
+                fields,
+                rain=rain,
+                days_per_year=days_per_year,
+                **_DAILY,
+                **_ANNUAL,
             )
 
         mask = fields.mask.to_numpy()
@@ -111,9 +115,7 @@ def test_positive_feedback_vegetation_sustains():
     assert results["B"] > results["A"] + 1.0, (
         f"Vegetated V_B={results['B']:.4f} should exceed bare V_A={results['A']:.4f}"
     )
-    assert results["B"] > 1.0, (
-        f"Vegetation should persist: mean V_B={results['B']:.4f}"
-    )
+    assert results["B"] > 1.0, f"Vegetation should persist: mean V_B={results['B']:.4f}"
 
 
 @pytest.mark.slow
@@ -131,14 +133,17 @@ def test_negative_feedback_vegetation_depletes_moisture():
     fields = _setup_slope(n, dx)
 
     V_init = np.zeros((n, n), dtype=np.float32)
-    V_init[1:n // 2, 1:n // 2] = 50.0  # upper-left quadrant
+    V_init[1 : n // 2, 1 : n // 2] = 50.0  # upper-left quadrant
     fields.V.from_numpy(V_init)
     fields.M.from_numpy(np.full((n, n), 0.1, dtype=np.float32))
 
     for _ in range(3):
         step_year(
-            fields, rain=rain, days_per_year=days_per_year,
-            **_DAILY, **_ANNUAL,
+            fields,
+            rain=rain,
+            days_per_year=days_per_year,
+            **_DAILY,
+            **_ANNUAL,
         )
 
     mask = fields.mask.to_numpy()
@@ -150,55 +155,88 @@ def test_negative_feedback_vegetation_depletes_moisture():
     M_veg = np.mean(M[veg_mask])
     M_bare = np.mean(M[bare_mask])
 
-    assert M_veg < M_bare, (
-        f"Vegetated M={M_veg:.4f} should be < bare M={M_bare:.4f}"
-    )
+    assert M_veg < M_bare, f"Vegetated M={M_veg:.4f} should be < bare M={M_bare:.4f}"
 
 
-@pytest.mark.slow
-def test_runoff_runon_moisture_gradient():
-    """10.3: Vegetated cells intercept runoff → higher M than bare cells.
+def _run_hydrology_only(fields, n_days, rain_depth, params):
+    """Run water routing + soil moisture for n_days (no vegetation dynamics).
 
-    32×32 grid, sparse random vegetation, 3 years.
-    Classify cells by final V: vegetated cells should have higher mean M
-    than bare cells (vegetation intercepts runoff via enhanced infiltration).
+    Uses g_max=0 so the soil moisture equation becomes dM/dt = I_inf - rw*M,
+    isolating the infiltration signal from vegetation uptake.
     """
-    n = 32
+    for _ in range(n_days):
+        fields.R.fill(rain_depth)
+
+        for _ in range(params["n_picard"]):
+            route_water(
+                fields.Q_out,
+                fields.Q_out_new,
+                fields.Q_daily,
+                fields.R,
+                fields.I_inf,
+                fields.h,
+                fields.z,
+                fields.V,
+                fields.flow_frac,
+                fields.mask,
+                params["dx"],
+                params["n_manning"],
+                params["cn"],
+                params["alpha"],
+                params["k2"],
+                params["W0"],
+            )
+            fields.swap("Q_out")
+
+        _scale_field(fields.I_inf, 1000.0)
+
+        soil_moisture_step(
+            fields.M,
+            fields.M_new,
+            fields.I_inf,
+            fields.V,
+            fields.mask,
+            0.0,  # g_max=0: no vegetation uptake
+            params["k1"],
+            params["rw"],
+            params["dt"],
+        )
+        fields.swap("M")
+
+
+def test_runoff_runon_moisture_gradient():
+    """10.3: Vegetation enhances infiltration → higher soil moisture.
+
+    Two identical 16×16 slopes, 60 days of constant rainfall.
+    Run A: V=0 (bare).  Run B: V=20 (vegetated).
+    No vegetation dynamics (g_max=0), so M reflects only the
+    infiltration gradient: I = α·h·(V + k₂·W₀)/(V + k₂).
+
+    Vegetated cells have ~11× higher infiltration capacity
+    (factor 0.55 vs 0.05), so more rainfall and runoff is captured
+    before it exits the domain.  Mean M should be higher.
+
+    Deterministic, runs in seconds.
+    """
+    n = 16
     dx = _DAILY["dx"]
-    days_per_year = 60
-    rain = _make_rain(days_per_year, n_wet=20)
+    rain_depth = 0.01  # m/day — heavy enough that bare soil generates runoff
+    n_days = 60
 
-    fields = _setup_slope(n, dx)
+    results = {}
+    for label, V_val in [("bare", 0.0), ("veg", 20.0)]:
+        fields = _setup_slope(n, dx)
+        fields.V.from_numpy(np.full((n, n), V_val, dtype=np.float32))
+        fields.M.from_numpy(np.zeros((n, n), dtype=np.float32))
+        _run_hydrology_only(fields, n_days, rain_depth, _DAILY)
 
-    rng = np.random.default_rng(99)
-    V_init = np.zeros((n, n), dtype=np.float32)
-    mask = fields.mask.to_numpy()
-    interior = np.argwhere(mask == 1)
-    chosen = rng.choice(len(interior), min(100, len(interior)), replace=False)
-    for idx in chosen:
-        i, j = interior[idx]
-        V_init[i, j] = 10.0
-    fields.V.from_numpy(V_init)
-    fields.M.from_numpy(np.full((n, n), 0.1, dtype=np.float32))
+        mask = fields.mask.to_numpy()
+        M = fields.M.to_numpy()
+        results[label] = np.mean(M[mask == 1])
 
-    for _ in range(3):
-        step_year(
-            fields, rain=rain, days_per_year=days_per_year,
-            **_DAILY, **_ANNUAL,
-        )
-
-    M = fields.M.to_numpy()
-    V = fields.V.to_numpy()
-
-    veg_cells = (V > 5.0) & (mask == 1)
-    bare_cells = (V <= 5.0) & (mask == 1)
-
-    if np.sum(veg_cells) > 0 and np.sum(bare_cells) > 0:
-        M_veg = np.mean(M[veg_cells])
-        M_bare = np.mean(M[bare_cells])
-        assert M_veg > M_bare, (
-            f"Vegetated M={M_veg:.4f} should exceed bare M={M_bare:.4f}"
-        )
+    assert results["veg"] > results["bare"], (
+        f"Vegetated M={results['veg']:.4f} should exceed bare M={results['bare']:.4f}"
+    )
 
 
 @pytest.mark.slow
@@ -227,8 +265,11 @@ def test_pattern_instability():
 
     for _ in range(5):
         step_year(
-            fields, rain=rain, days_per_year=days_per_year,
-            **_DAILY, **_ANNUAL,
+            fields,
+            rain=rain,
+            days_per_year=days_per_year,
+            **_DAILY,
+            **_ANNUAL,
         )
 
     V_final = fields.V.to_numpy()
