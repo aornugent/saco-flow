@@ -10,7 +10,6 @@ import numpy as np
 import pytest
 import taichi as ti
 
-from src.fields import allocate
 from src.flow import compute_flow_fractions
 from src.sediment import (
     _erosion_deposition_coeffs,
@@ -18,15 +17,6 @@ from src.sediment import (
     update_elevation,
 )
 from src.stencil import DIAG, OFFSETS, OPP
-
-
-def _setup_grid(n):
-    """Allocate fields with boundary mask."""
-    fields = allocate(n)
-    mask = np.ones((n, n), dtype=np.int32)
-    mask[0, :] = mask[-1, :] = mask[:, 0] = mask[:, -1] = 0
-    fields.mask.from_numpy(mask)
-    return fields
 
 
 # Wrapper kernel to test _erosion_deposition_coeffs from Python
@@ -63,7 +53,7 @@ def _run_sediment(fields, dx, **kwargs):
 # ── Section 5: Sediment Transport ────────────────────────────────────────────
 
 
-def test_sediment_transport_capacity():
+def test_sediment_transport_capacity(grid):
     """5.1: Transport capacity formula — exact value.
 
     Q_annual=100 m³/yr, slope=0.02, gamma=1.0, m=n=1.65, dx=5.0.
@@ -71,7 +61,7 @@ def test_sediment_transport_capacity():
     """
     n = 5
     dx = 5.0
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     # Set slope = 0.02: z[2,2] - z[3,2] = 0.02 * dx = 0.1
     z = np.full((n, n), 10.0, dtype=np.float32)
@@ -106,11 +96,11 @@ def test_sediment_transport_capacity():
     )
 
 
-def test_sediment_erosion_regime():
+def test_sediment_erosion_regime(grid):
     """5.2: Erosion regime — S_0 < C → 0 < S_new < C, matches formula."""
     n = 5
     dx = 5.0
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     z = np.full((n, n), 10.0, dtype=np.float32)
     z[2, 2] = 10.0
@@ -153,11 +143,11 @@ def test_sediment_erosion_regime():
     assert rel_err < 1e-3, f"S_new={S_new_val:.6f}, expected={expected:.6f}, rel_err={rel_err:.2e}"
 
 
-def test_sediment_deposition_regime():
+def test_sediment_deposition_regime(grid):
     """5.3: Deposition regime — S_0 > C → C < S_new < S_0."""
     n = 5
     dx = 5.0
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     # Gentle slope, low Q → small C
     z = np.full((n, n), 10.0, dtype=np.float32)
@@ -201,11 +191,11 @@ def test_sediment_deposition_regime():
         )
 
 
-def test_sediment_equilibrium():
+def test_sediment_equilibrium(grid):
     """5.4: Equilibrium — when S_0 = C, S_new = C (no change)."""
     n = 5
     dx = 5.0
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     z = np.full((n, n), 10.0, dtype=np.float32)
     z[2, 2] = 10.0
@@ -296,11 +286,11 @@ def _reconstruct_S0(S, flow_frac, mask):
     return S_0
 
 
-def test_elevation_erosion():
+def test_elevation_erosion(grid):
     """6.1: Erosion lowers elevation — S_0 < S_new → dz < 0."""
     n = 5
     dx = 5.0
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     z = np.full((n, n), 10.0, dtype=np.float32)
     for i in range(n):
@@ -329,11 +319,11 @@ def test_elevation_erosion():
     )
 
 
-def test_elevation_deposition():
+def test_elevation_deposition(grid):
     """6.2: Deposition raises elevation — S_0 > S_new → dz > 0."""
     n = 5
     dx = 5.0
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     z = np.full((n, n), 10.0, dtype=np.float32)
     for i in range(n):
@@ -365,11 +355,11 @@ def test_elevation_deposition():
     assert actual_dz > 0, f"Expected deposition (dz>0), got dz={actual_dz}"
 
 
-def test_elevation_mass_conservation():
+def test_elevation_mass_conservation(grid):
     """6.3: Sediment mass conservation — Σ Δz ≈ 0 on closed domain."""
     n = 8
     dx = 1.0
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     z = np.zeros((n, n), dtype=np.float32)
     for i in range(n):

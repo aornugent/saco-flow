@@ -9,18 +9,8 @@ import math
 import numpy as np
 import pytest
 
-from src.fields import allocate
 from src.flow import compute_flow_fractions
 from src.vegetation import vegetation_step
-
-
-def _setup_grid(n):
-    """Allocate fields with boundary mask."""
-    fields = allocate(n)
-    mask = np.ones((n, n), dtype=np.int32)
-    mask[0, :] = mask[-1, :] = mask[:, 0] = mask[:, -1] = 0
-    fields.mask.from_numpy(mask)
-    return fields
 
 
 def _flat_veg_step(fields, n, **kwargs):
@@ -35,7 +25,7 @@ def _flat_veg_step(fields, n, **kwargs):
     )
 
 
-def test_vegetation_growth_mortality_exact():
+def test_vegetation_growth_mortality_exact(grid):
     """4.1: Single-cell growth/mortality exact Euler step (no dispersal).
 
     V=10, M=5, c=10, g_max=0.05, k1=5, d=0.13, dt=1.
@@ -44,7 +34,7 @@ def test_vegetation_growth_mortality_exact():
     V_new = 10 + 1*(2.5 − 1.3) = 11.2
     """
     n = 5
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     fields.V.from_numpy(np.full((n, n), 10.0, dtype=np.float32))
     fields.M.from_numpy(np.full((n, n), 5.0, dtype=np.float32))
@@ -58,13 +48,13 @@ def test_vegetation_growth_mortality_exact():
     assert abs(V_new[2, 2] - 11.2) < 1e-4, f"V_new={V_new[2, 2]:.6f}, expected=11.2"
 
 
-def test_vegetation_mortality_only_exact():
+def test_vegetation_mortality_only_exact(grid):
     """4.2: Mortality-only exact decay (M=0 → no growth).
 
     V=20, d=0.13, dt=1. V_new = 20 − 2.6 = 17.4.
     """
     n = 5
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     fields.V.from_numpy(np.full((n, n), 20.0, dtype=np.float32))
     fields.M.from_numpy(np.zeros((n, n), dtype=np.float32))
@@ -78,7 +68,7 @@ def test_vegetation_mortality_only_exact():
     assert abs(V_new[2, 2] - 17.4) < 1e-5, f"V_new={V_new[2, 2]:.6f}, expected=17.4"
 
 
-def test_vegetation_steady_state():
+def test_vegetation_steady_state(grid):
     """4.3: Vegetation equilibrium — growth = mortality.
 
     At equilibrium: c*g_max*M*/(M*+k1) = d.
@@ -87,7 +77,7 @@ def test_vegetation_steady_state():
     from src.soil_moisture import soil_moisture_step
 
     n = 5
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     c, g_max, k1, d = 10.0, 0.05, 5.0, 0.13
     rw = 0.19
@@ -145,7 +135,7 @@ def test_vegetation_steady_state():
     )
 
 
-def test_vegetation_isotropic_diffusion_exact():
+def test_vegetation_isotropic_diffusion_exact(grid):
     """4.4: Exact Laplacian on known pattern — center cell.
 
     5×5 grid. V[2,2]=20, cardinal neighbors V=10. Dp=1.0, dx=1.0, dt=0.1.
@@ -153,7 +143,7 @@ def test_vegetation_isotropic_diffusion_exact():
     V_new = 20 + 0.1*(−40) = 16.0.
     """
     n = 5
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     V = np.full((n, n), 10.0, dtype=np.float32)
     V[2, 2] = 20.0
@@ -169,14 +159,14 @@ def test_vegetation_isotropic_diffusion_exact():
     assert abs(V_new[2, 2] - 16.0) < 1e-5, f"V_new={V_new[2, 2]:.6f}, expected=16.0"
 
 
-def test_vegetation_isotropic_diffusion_conserves():
+def test_vegetation_isotropic_diffusion_conserves(grid):
     """4.5: Isotropic diffusion conserves total vegetation.
 
     8×8 grid, random V, c=d=c1=0, Dp=0.5, dt=0.05. 100 steps.
     |Σ V_final − Σ V_initial| < 1e-3 * Σ V_initial.
     """
     n = 8
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     rng = np.random.default_rng(123)
     V0 = rng.uniform(1.0, 20.0, (n, n)).astype(np.float32)
@@ -210,7 +200,7 @@ def test_vegetation_isotropic_diffusion_conserves():
     )
 
 
-def test_vegetation_flow_dispersal_exact():
+def test_vegetation_flow_dispersal_exact(grid):
     """4.6: Flow-directed dispersal single-cell exact value.
 
     5×5 grid, linear slope. Cell [2,2]: V=5, Q_daily=0.3.
@@ -224,7 +214,7 @@ def test_vegetation_flow_dispersal_exact():
     """
     n = 5
     dx = 5.0
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     # Set z so [1,2] has exactly one downslope interior neighbor: [2,2] (south)
     z = np.full((n, n), 20.0, dtype=np.float32)
@@ -272,7 +262,7 @@ def test_vegetation_flow_dispersal_exact():
     )
 
 
-def test_vegetation_flow_dispersal_conserves():
+def test_vegetation_flow_dispersal_conserves(grid):
     """4.7: Flow dispersal conserves vegetation on a closed domain.
 
     8×8 grid, linear slope, uniform V=10, nonzero Q_daily.
@@ -280,7 +270,7 @@ def test_vegetation_flow_dispersal_conserves():
     """
     n = 12  # Larger grid to reduce boundary effects
     dx = 1.0
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     z = np.zeros((n, n), dtype=np.float32)
     for i in range(n):
@@ -322,14 +312,14 @@ def test_vegetation_flow_dispersal_conserves():
     )
 
 
-def test_vegetation_no_negative():
+def test_vegetation_no_negative(grid):
     """4.8: Clamp correctness — no negative vegetation.
 
     V=0.001, M=0, d=10.0, dt=1.0, no dispersal.
     mortality = 10*0.001 = 0.01 > V → clamped to 0.
     """
     n = 5
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     fields.V.from_numpy(np.full((n, n), 0.001, dtype=np.float32))
     fields.M.from_numpy(np.zeros((n, n), dtype=np.float32))

@@ -10,30 +10,9 @@ import math
 import numpy as np
 import pytest
 
-from src.fields import allocate
 from src.flow import compute_flow_fractions, route_water
 from src.simulate import _scale_field, step_day, step_year
 from src.stencil import OFFSETS, OPP
-
-
-def _setup_grid(n):
-    """Allocate fields with boundary mask."""
-    fields = allocate(n)
-    mask = np.ones((n, n), dtype=np.int32)
-    mask[0, :] = mask[-1, :] = mask[:, 0] = mask[:, -1] = 0
-    fields.mask.from_numpy(mask)
-    return fields
-
-
-def _setup_slope_grid(n, dx=1.0, p=1.0):
-    """Set up grid with linear slope and precomputed flow fractions."""
-    fields = _setup_grid(n)
-    z = np.zeros((n, n), dtype=np.float32)
-    for i in range(n):
-        z[i, :] = float(n - 1 - i)
-    fields.z.from_numpy(z)
-    compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, p)
-    return fields
 
 
 _DAILY = {
@@ -59,7 +38,7 @@ _DAILY = {
 # ── Section 7: Unit Conversion ───────────────────────────────────────────────
 
 
-def test_I_inf_scaling():
+def test_I_inf_scaling(slope_grid):
     """7.1: I_inf scaling from m/day → mm/day.
 
     With alpha=0, I_inf should be 0 before and after scaling.
@@ -67,7 +46,7 @@ def test_I_inf_scaling():
     """
     n = 5
     dx = 1.0
-    fields = _setup_slope_grid(n, dx)
+    fields = slope_grid(n, dx)
 
     R = np.full((n, n), 0.01, dtype=np.float32)
     fields.R.from_numpy(R)
@@ -116,7 +95,7 @@ def test_I_inf_scaling():
                 )
 
 
-def test_no_cross_contamination():
+def test_no_cross_contamination(slope_grid):
     """7.2: No cross-contamination between substeps.
 
     Soil moisture sees scaled I_inf and pre-step V.
@@ -124,7 +103,7 @@ def test_no_cross_contamination():
     """
     n = 5
     dx = 1.0
-    fields = _setup_slope_grid(n, dx)
+    fields = slope_grid(n, dx)
 
     R = np.full((n, n), 0.01, dtype=np.float32)
     fields.R.from_numpy(R)
@@ -157,14 +136,14 @@ def test_no_cross_contamination():
 # ── Section 8: Daily Integration ─────────────────────────────────────────────
 
 
-def test_daily_water_budget():
+def test_daily_water_budget(slope_grid):
     """8.1: Water budget over 10 days closes within 5%.
 
     water_in ≈ water_infil + water_Q_exit (approximately).
     """
     n = 16
     dx = 1.0
-    fields = _setup_slope_grid(n, dx)
+    fields = slope_grid(n, dx)
 
     R_val = 0.005
     fields.R.from_numpy(np.full((n, n), R_val, dtype=np.float32))
@@ -195,14 +174,14 @@ def test_daily_water_budget():
     assert total_supply > 0, "No supply"
 
 
-def test_daily_no_water_no_growth():
+def test_daily_no_water_no_growth(slope_grid):
     """8.2: Vegetation decays monotonically without water.
 
     R=0, I_inf=0, M=0. V should decrease every day.
     """
     n = 16
     dx = 1.0
-    fields = _setup_slope_grid(n, dx)
+    fields = slope_grid(n, dx)
 
     fields.R.from_numpy(np.zeros((n, n), dtype=np.float32))
     fields.V.from_numpy(np.full((n, n), 10.0, dtype=np.float32))
@@ -236,7 +215,7 @@ def test_daily_no_water_no_growth():
 # ── Section 9: Annual Integration ────────────────────────────────────────────
 
 
-def test_annual_Q_accumulation():
+def test_annual_Q_accumulation(grid):
     """9.1: Q_annual accumulation over one year with constant R.
 
     Flat grid, zero infiltration: Q_daily = R*dx²/2.
@@ -244,7 +223,7 @@ def test_annual_Q_accumulation():
     """
     n = 8
     dx = 1.0
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     # Flat grid → no flow between cells, Q_out = R*dx², Q_daily = R*dx²/2
     z = np.full((n, n), 10.0, dtype=np.float32)
@@ -281,11 +260,11 @@ def test_annual_Q_accumulation():
                 )
 
 
-def test_annual_elevation_bounded():
+def test_annual_elevation_bounded(slope_grid):
     """9.2: Elevation change bounded by sediment flux after one year."""
     n = 16
     dx = 5.0
-    fields = _setup_slope_grid(n, dx, p=2.0)
+    fields = slope_grid(n, dx, p=2.0)
 
     R_val = 0.01
     fields.V.from_numpy(np.full((n, n), 5.0, dtype=np.float32))
@@ -329,11 +308,11 @@ def test_annual_elevation_bounded():
         )
 
 
-def test_annual_flow_fracs_updated():
+def test_annual_flow_fracs_updated(slope_grid):
     """9.3: Flow fractions recomputed from updated elevation after step_year."""
     n = 8
     dx = 5.0
-    fields = _setup_slope_grid(n, dx, p=2.0)
+    fields = slope_grid(n, dx, p=2.0)
 
     R_val = 0.01
     fields.V.from_numpy(np.full((n, n), 5.0, dtype=np.float32))
@@ -386,7 +365,7 @@ def test_growth_overcomes_mortality():
     assert c * g_max > d, f"c*g_max={c * g_max} <= d={d}: vegetation always dies"
 
 
-def test_infiltration_units_pipeline():
+def test_infiltration_units_pipeline(slope_grid):
     """11.3: Infiltration units through the pipeline.
 
     route_water produces I_inf in m/day.
@@ -395,7 +374,7 @@ def test_infiltration_units_pipeline():
     """
     n = 5
     dx = 1.0
-    fields = _setup_slope_grid(n, dx)
+    fields = slope_grid(n, dx)
 
     fields.R.from_numpy(np.full((n, n), 0.01, dtype=np.float32))
     fields.V.from_numpy(np.full((n, n), 10.0, dtype=np.float32))

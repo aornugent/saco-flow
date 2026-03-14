@@ -7,19 +7,9 @@ and pattern instability. These are longer-running (multi-year simulations).
 import numpy as np
 import pytest
 
-from src.fields import allocate
 from src.flow import compute_flow_fractions, route_water
 from src.simulate import _scale_field, step_year
 from src.soil_moisture import soil_moisture_step
-
-
-def _setup_grid(n):
-    """Allocate fields with boundary mask."""
-    fields = allocate(n)
-    mask = np.ones((n, n), dtype=np.int32)
-    mask[0, :] = mask[-1, :] = mask[:, 0] = mask[:, -1] = 0
-    fields.mask.from_numpy(mask)
-    return fields
 
 
 _DAILY = {
@@ -55,15 +45,18 @@ _ANNUAL = {
 }
 
 
-def _setup_slope(n, dx):
-    """Create grid with 1.4% linear slope and precomputed flow fractions."""
-    fields = _setup_grid(n)
-    z = np.zeros((n, n), dtype=np.float32)
-    for i in range(n):
-        z[i, :] = float(n - 1 - i) * 0.07 * dx
-    fields.z.from_numpy(z)
-    compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, 2.0)
-    return fields
+@pytest.fixture
+def slope(grid):
+    """Factory: grid with 1.4% linear slope and precomputed flow fractions."""
+    def _make(n, dx):
+        fields = grid(n)
+        z = np.zeros((n, n), dtype=np.float32)
+        for i in range(n):
+            z[i, :] = float(n - 1 - i) * 0.07 * dx
+        fields.z.from_numpy(z)
+        compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, 2.0)
+        return fields
+    return _make
 
 
 def _make_rain(days_per_year, n_wet=70, mean_depth=0.00417):
@@ -76,7 +69,7 @@ def _make_rain(days_per_year, n_wet=70, mean_depth=0.00417):
 
 
 @pytest.mark.slow
-def test_positive_feedback_vegetation_sustains():
+def test_positive_feedback_vegetation_sustains(slope):
     """10.1: Positive feedback — initial vegetation is sustained by rainfall.
 
     Two runs, 5 years. Run A: V=0 (bare). Run B: V=5 (vegetated).
@@ -93,7 +86,7 @@ def test_positive_feedback_vegetation_sustains():
 
     results = {}
     for label, V_init in [("A", 0.0), ("B", 5.0)]:
-        fields = _setup_slope(n, dx)
+        fields = slope(n, dx)
         fields.V.from_numpy(np.full((n, n), V_init, dtype=np.float32))
         fields.M.from_numpy(np.full((n, n), 0.1, dtype=np.float32))
 
@@ -119,7 +112,7 @@ def test_positive_feedback_vegetation_sustains():
 
 
 @pytest.mark.slow
-def test_negative_feedback_vegetation_depletes_moisture():
+def test_negative_feedback_vegetation_depletes_moisture(slope):
     """10.2: Dense vegetation depletes soil moisture locally.
 
     16×16 grid, 3 years. High V=50 in one quadrant, V=0 elsewhere.
@@ -130,7 +123,7 @@ def test_negative_feedback_vegetation_depletes_moisture():
     days_per_year = 60
     rain = _make_rain(days_per_year, n_wet=20)
 
-    fields = _setup_slope(n, dx)
+    fields = slope(n, dx)
 
     V_init = np.zeros((n, n), dtype=np.float32)
     V_init[1 : n // 2, 1 : n // 2] = 50.0  # upper-left quadrant
@@ -204,7 +197,7 @@ def _run_hydrology_only(fields, n_days, rain_depth, params):
         fields.swap("M")
 
 
-def test_runoff_runon_moisture_gradient():
+def test_runoff_runon_moisture_gradient(slope):
     """10.3: Vegetation enhances infiltration → higher soil moisture.
 
     Two identical 16×16 slopes, 60 days of constant rainfall.
@@ -225,7 +218,7 @@ def test_runoff_runon_moisture_gradient():
 
     results = {}
     for label, V_val in [("bare", 0.0), ("veg", 20.0)]:
-        fields = _setup_slope(n, dx)
+        fields = slope(n, dx)
         fields.V.from_numpy(np.full((n, n), V_val, dtype=np.float32))
         fields.M.from_numpy(np.zeros((n, n), dtype=np.float32))
         _run_hydrology_only(fields, n_days, rain_depth, _DAILY)
@@ -240,7 +233,7 @@ def test_runoff_runon_moisture_gradient():
 
 
 @pytest.mark.slow
-def test_pattern_instability():
+def test_pattern_instability(slope):
     """10.4: Uniform state is unstable — perturbation grows.
 
     32×32 grid, uniform V=10 ± 0.1, 5 years.
@@ -251,7 +244,7 @@ def test_pattern_instability():
     days_per_year = 60
     rain = _make_rain(days_per_year, n_wet=20)
 
-    fields = _setup_slope(n, dx)
+    fields = slope(n, dx)
 
     rng = np.random.default_rng(42)
     V_init = (10.0 + rng.uniform(-0.1, 0.1, (n, n))).astype(np.float32)
