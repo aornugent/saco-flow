@@ -30,11 +30,11 @@ def grid():
 @pytest.fixture
 def slope_grid(grid):
     """Factory: allocate fields with linear slope and precomputed flow fractions."""
-    def _make(n, dx=1.0, p=1.0):
+    def _make(n, dx=1.0, p=1.0, step=1.0):
         fields = grid(n)
         z = np.zeros((n, n), dtype=np.float32)
         for i in range(n):
-            z[i, :] = float(n - 1 - i)
+            z[i, :] = float(n - 1 - i) * step
         fields.z.from_numpy(z)
         compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, p)
         return fields

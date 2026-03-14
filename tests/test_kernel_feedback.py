@@ -7,7 +7,7 @@ and pattern instability. These are longer-running (multi-year simulations).
 import numpy as np
 import pytest
 
-from src.flow import compute_flow_fractions, route_water
+from src.flow import route_water
 from src.simulate import _scale_field, step_year
 from src.soil_moisture import soil_moisture_step
 
@@ -45,18 +45,6 @@ _ANNUAL = {
 }
 
 
-@pytest.fixture
-def slope(grid):
-    """Factory: grid with 1.4% linear slope and precomputed flow fractions."""
-    def _make(n, dx):
-        fields = grid(n)
-        z = np.zeros((n, n), dtype=np.float32)
-        for i in range(n):
-            z[i, :] = float(n - 1 - i) * 0.07 * dx
-        fields.z.from_numpy(z)
-        compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, 2.0)
-        return fields
-    return _make
 
 
 def _make_rain(days_per_year, n_wet=70, mean_depth=0.00417):
@@ -69,7 +57,7 @@ def _make_rain(days_per_year, n_wet=70, mean_depth=0.00417):
 
 
 @pytest.mark.slow
-def test_positive_feedback_vegetation_sustains(slope):
+def test_positive_feedback_vegetation_sustains(slope_grid):
     """10.1: Positive feedback — initial vegetation is sustained by rainfall.
 
     Two runs, 5 years. Run A: V=0 (bare). Run B: V=5 (vegetated).
@@ -86,7 +74,7 @@ def test_positive_feedback_vegetation_sustains(slope):
 
     results = {}
     for label, V_init in [("A", 0.0), ("B", 5.0)]:
-        fields = slope(n, dx)
+        fields = slope_grid(n, dx, p=2.0, step=0.07 * dx)
         fields.V.from_numpy(np.full((n, n), V_init, dtype=np.float32))
         fields.M.from_numpy(np.full((n, n), 0.1, dtype=np.float32))
 
@@ -112,7 +100,7 @@ def test_positive_feedback_vegetation_sustains(slope):
 
 
 @pytest.mark.slow
-def test_negative_feedback_vegetation_depletes_moisture(slope):
+def test_negative_feedback_vegetation_depletes_moisture(slope_grid):
     """10.2: Dense vegetation depletes soil moisture locally.
 
     16×16 grid, 3 years. High V=50 in one quadrant, V=0 elsewhere.
@@ -197,7 +185,7 @@ def _run_hydrology_only(fields, n_days, rain_depth, params):
         fields.swap("M")
 
 
-def test_runoff_runon_moisture_gradient(slope):
+def test_runoff_runon_moisture_gradient(slope_grid):
     """10.3: Vegetation enhances infiltration → higher soil moisture.
 
     Two identical 16×16 slopes, 60 days of constant rainfall.
@@ -218,7 +206,7 @@ def test_runoff_runon_moisture_gradient(slope):
 
     results = {}
     for label, V_val in [("bare", 0.0), ("veg", 20.0)]:
-        fields = slope(n, dx)
+        fields = slope_grid(n, dx, p=2.0, step=0.07 * dx)
         fields.V.from_numpy(np.full((n, n), V_val, dtype=np.float32))
         fields.M.from_numpy(np.zeros((n, n), dtype=np.float32))
         _run_hydrology_only(fields, n_days, rain_depth, _DAILY)
@@ -233,7 +221,7 @@ def test_runoff_runon_moisture_gradient(slope):
 
 
 @pytest.mark.slow
-def test_pattern_instability(slope):
+def test_pattern_instability(slope_grid):
     """10.4: Uniform state is unstable — perturbation grows.
 
     32×32 grid, uniform V=10 ± 0.1, 5 years.
