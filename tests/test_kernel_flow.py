@@ -2,12 +2,14 @@
 
 Sections 1-2 of the test plan: exact values, conservation, and analytical
 solutions for compute_flow_fractions and route_water.
+
+All discharge quantities are unit-width, mm-based [mm*m/day].
+R and I_inf are in [mm/day].
 """
 
 import math
 
 import numpy as np
-import pytest
 
 from src.flow import compute_flow_fractions, route_water
 from src.stencil import DIAG, OFFSETS, OPP
@@ -143,7 +145,6 @@ def _route_once(fields, dx, n_manning=0.03, cn=1.0, alpha=0.0, k2=5.0, W0=0.2):
         fields.Q_daily,
         fields.R,
         fields.I_inf,
-        fields.h,
         fields.z,
         fields.V,
         fields.flow_frac,
@@ -158,7 +159,7 @@ def _route_once(fields, dx, n_manning=0.03, cn=1.0, alpha=0.0, k2=5.0, W0=0.2):
 
 
 def test_route_water_cell_balance(grid):
-    """2.1: Cell-level water balance — I_inf from mass balance ensures residual ≈ 0."""
+    """2.1: Cell-level water balance — I_inf from mass balance ensures residual ~ 0."""
     n = 8
     dx = 1.0
     fields = grid(n)
@@ -168,7 +169,8 @@ def test_route_water_cell_balance(grid):
         z[i, :] = float(n - 1 - i)
     fields.z.from_numpy(z)
 
-    R = np.full((n, n), 0.01, dtype=np.float32)
+    R_mm = 10.0  # mm/day
+    R = np.full((n, n), R_mm, dtype=np.float32)
     fields.R.from_numpy(R)
     fields.V.from_numpy(np.full((n, n), 5.0, dtype=np.float32))
 
@@ -185,30 +187,26 @@ def test_route_water_cell_balance(grid):
     frac = fields.flow_frac.to_numpy()
 
     Q_in = _reconstruct_Q_in(Q_out, frac, mask)
-    cell_area = dx * dx
 
     for i in range(1, n - 1):
         for j in range(1, n - 1):
             if mask[i, j] == 0:
                 continue
-            residual = abs(
-                Q_in[i, j] + R[i, j] * cell_area
-                - I_inf[i, j] * cell_area
-                - Q_out[i, j]
-            )
-            assert residual < 1e-4 * R[i, j] * cell_area, (
+            # Unit-width balance: Q_in + R*dx - I_inf*dx - Q_out ~ 0
+            residual = abs(Q_in[i, j] + R_mm * dx - I_inf[i, j] * dx - Q_out[i, j])
+            assert residual < 1e-4 * R_mm * dx, (
                 f"Mass balance violated at ({i},{j}): residual={residual:.2e}"
             )
             # Where Q_out == 0, infiltration cannot exceed supply
             if Q_out[i, j] == 0.0:
-                assert I_inf[i, j] * cell_area <= Q_in[i, j] + R[i, j] * cell_area + 1e-10
+                assert I_inf[i, j] * dx <= Q_in[i, j] + R_mm * dx + 1e-10
 
 
 def test_route_water_zero_infiltration_analytical(grid):
     """2.2: Single-cell analytical solution with alpha=0 (no infiltration).
 
-    Q_in=0, R=0.01, alpha=0 → I=0.
-    Q_out = R*dx², Q_daily = R*dx²/2, I_inf = 0.
+    Q_in=0, R=10 mm/day, alpha=0 -> I=0.
+    Q_out = R*dx [mm*m/day], Q_daily = R*dx/2 [mm*m/day], I_inf = 0.
     """
     n = 3
     dx = 1.0
@@ -217,7 +215,8 @@ def test_route_water_zero_infiltration_analytical(grid):
     z = np.array([[2, 2, 2], [2, 10, 2], [2, 9, 2]], dtype=np.float32)
     fields.z.from_numpy(z)
 
-    R = np.full((n, n), 0.01, dtype=np.float32)
+    R_mm = 10.0  # mm/day
+    R = np.full((n, n), R_mm, dtype=np.float32)
     fields.R.from_numpy(R)
     fields.V.from_numpy(np.full((n, n), 10.0, dtype=np.float32))
 
@@ -226,19 +225,18 @@ def test_route_water_zero_infiltration_analytical(grid):
     # Single route_water call
     _route_once(fields, dx, alpha=0.0)
 
-    cell_area = dx * dx
     Q_out_new = fields.Q_out_new.to_numpy()
     Q_daily = fields.Q_daily.to_numpy()
     I_inf = fields.I_inf.to_numpy()
 
-    expected_Q_out = 0.01 * cell_area
-    expected_Q_daily = 0.005 * cell_area
+    expected_Q_out = R_mm * dx  # 10 mm*m/day
+    expected_Q_daily = R_mm * dx / 2  # 5 mm*m/day
     expected_I_inf = 0.0
 
-    assert abs(Q_out_new[1, 1] - expected_Q_out) < 1e-6, (
+    assert abs(Q_out_new[1, 1] - expected_Q_out) < 1e-4, (
         f"Q_out: {Q_out_new[1, 1]} != {expected_Q_out}"
     )
-    assert abs(Q_daily[1, 1] - expected_Q_daily) < 1e-6, (
+    assert abs(Q_daily[1, 1] - expected_Q_daily) < 1e-4, (
         f"Q_daily: {Q_daily[1, 1]} != {expected_Q_daily}"
     )
     assert abs(I_inf[1, 1] - expected_I_inf) < 1e-6, (
@@ -249,7 +247,7 @@ def test_route_water_zero_infiltration_analytical(grid):
 def test_route_water_picard_analytical(grid):
     """2.3: Single-cell Picard iteration matches Python reference computation.
 
-    5×5 grid with slope=1/dx at center cell. R=0.01, V=10, alpha=1.0.
+    5x5 grid with slope=1/dx at center cell. R=10 mm/day, V=10, alpha=1.0.
     Run single route_water call (5 internal Picard iterations).
     """
     n = 5
@@ -261,8 +259,8 @@ def test_route_water_picard_analytical(grid):
         z[i, :] = float(n - 1 - i)
     fields.z.from_numpy(z)
 
-    R_val = 0.01
-    R = np.full((n, n), R_val, dtype=np.float32)
+    R_mm = 10.0  # mm/day
+    R = np.full((n, n), R_mm, dtype=np.float32)
     fields.R.from_numpy(R)
     fields.V.from_numpy(np.full((n, n), 10.0, dtype=np.float32))
 
@@ -279,47 +277,38 @@ def test_route_water_picard_analytical(grid):
     W0 = 0.2
     n_manning = 0.03
     cn = 1.0
-    cell_area = dx * dx
 
     # slope_max at [2,2]: south neighbor [3,2] z=1, slope=(2-1)/dx=1.0
     slope_max = 1.0
 
     Q_o = 0.0  # initial guess
     for _ in range(5):
-        q = (Q_in + Q_o) / (2.0 * dx)
-        if q > 0.0 and cn > 0.0:
-            h_val = (q * n_manning / (cn * math.sqrt(slope_max))) ** 0.6
+        q = (Q_in + Q_o) / 2.0  # mm*m/day
+        q_m2 = q * 0.001  # m^2/day
+        if q_m2 > 0.0 and cn > 0.0:
+            h_val = (q_m2 * n_manning / (cn * math.sqrt(slope_max))) ** 0.6
         else:
             h_val = 0.0
-        I_val = alpha * h_val * (V + k2 * W0) / (V + k2)
-        Q_o = max(0.0, Q_in + R_val * cell_area - I_val * cell_area)
-
-    # Final recompute
-    q = (Q_in + Q_o) / (2.0 * dx)
-    if q > 0.0 and cn > 0.0:
-        h_final = (q * n_manning / (cn * math.sqrt(slope_max))) ** 0.6
-    else:
-        h_final = 0.0
+        I_val = alpha * h_val * (V + k2 * W0) / (V + k2) * 1000.0  # mm/day
+        Q_o = max(0.0, Q_in + R_mm * dx - I_val * dx)
 
     expected_Q_out = Q_o
     expected_Q_daily = (Q_in + Q_o) / 2.0
-    expected_I_inf = (Q_in + R_val * cell_area - Q_o) / cell_area
+    expected_I_inf = (Q_in + R_mm * dx - Q_o) / dx
 
     Q_out_new = fields.Q_out_new.to_numpy()
     Q_daily = fields.Q_daily.to_numpy()
     I_inf = fields.I_inf.to_numpy()
-    h = fields.h.to_numpy()
 
     assert abs(Q_out_new[2, 2] - expected_Q_out) / max(expected_Q_out, 1e-10) < 1e-4
     assert abs(Q_daily[2, 2] - expected_Q_daily) / max(expected_Q_daily, 1e-10) < 1e-4
     assert abs(I_inf[2, 2] - expected_I_inf) / max(expected_I_inf, 1e-10) < 1e-4
-    assert abs(h[2, 2] - h_final) / max(h_final, 1e-10) < 1e-4
 
 
 def test_route_water_infiltration_bounded(grid):
     """2.4: Infiltration cannot exceed supply (very large alpha, tiny R).
 
-    I_inf * dx² must not exceed Q_in + R * dx² (Bug 3 guard).
+    I_inf * dx must not exceed Q_in + R * dx (Bug 3 guard).
     """
     n = 3
     dx = 1.0
@@ -328,7 +317,8 @@ def test_route_water_infiltration_bounded(grid):
     z = np.array([[2, 2, 2], [2, 10, 2], [2, 9, 2]], dtype=np.float32)
     fields.z.from_numpy(z)
 
-    R = np.full((n, n), 0.001, dtype=np.float32)  # very small
+    R_mm = 1.0  # mm/day (small)
+    R = np.full((n, n), R_mm, dtype=np.float32)
     fields.R.from_numpy(R)
     fields.V.from_numpy(np.zeros((n, n), dtype=np.float32))  # bare soil
 
@@ -336,14 +326,12 @@ def test_route_water_infiltration_bounded(grid):
 
     _route_once(fields, dx, alpha=100.0, k2=5.0, W0=0.2)
 
-    cell_area = dx * dx
     I_inf = fields.I_inf.to_numpy()
-    R_arr = 0.001
 
-    # I_inf * dx² ≤ R * dx² (since Q_in = 0)
-    assert I_inf[1, 1] * cell_area <= R_arr * cell_area + 1e-10, (
-        f"Infiltration exceeds supply: I*dx²={I_inf[1, 1] * cell_area:.6f}, "
-        f"R*dx²={R_arr * cell_area:.6f}"
+    # I_inf * dx <= R * dx (since Q_in = 0)
+    assert I_inf[1, 1] * dx <= R_mm * dx + 1e-10, (
+        f"Infiltration exceeds supply: I*dx={I_inf[1, 1] * dx:.6f}, "
+        f"R*dx={R_mm * dx:.6f}"
     )
 
 
@@ -358,8 +346,8 @@ def test_route_water_global_conservation(grid):
         z[i, :] = float(n - 1 - i)
     fields.z.from_numpy(z)
 
-    R_val = 0.01
-    R = np.full((n, n), R_val, dtype=np.float32)
+    R_mm = 10.0  # mm/day
+    R = np.full((n, n), R_mm, dtype=np.float32)
     fields.R.from_numpy(R)
     fields.V.from_numpy(np.full((n, n), 5.0, dtype=np.float32))
 
@@ -373,13 +361,13 @@ def test_route_water_global_conservation(grid):
     I_inf = fields.I_inf.to_numpy()
     mask = fields.mask.to_numpy()
     frac = fields.flow_frac.to_numpy()
-    cell_area = dx * dx
 
     Q_in = _reconstruct_Q_in(Q_out, frac, mask)
     interior = mask == 1
 
-    total_supply = np.sum(R[interior]) * cell_area
-    total_infiltr = np.sum(I_inf[interior]) * cell_area
+    # Unit-width balance: supply = R*dx, infiltration = I_inf*dx
+    total_supply = np.sum(R[interior]) * dx
+    total_infiltr = np.sum(I_inf[interior]) * dx
     total_Q_boundary = np.sum(Q_out[interior]) - np.sum(Q_in[interior])
 
     balance = abs(total_supply - total_infiltr - total_Q_boundary)
@@ -401,7 +389,7 @@ def test_route_water_Q_daily_consistency(grid):
         z[i, :] = float(n - 1 - i)
     fields.z.from_numpy(z)
 
-    R = np.full((n, n), 0.01, dtype=np.float32)
+    R = np.full((n, n), 10.0, dtype=np.float32)  # mm/day
     fields.R.from_numpy(R)
     fields.V.from_numpy(np.full((n, n), 5.0, dtype=np.float32))
 
@@ -423,7 +411,6 @@ def test_route_water_Q_daily_consistency(grid):
             if mask[i, j] == 0:
                 continue
             expected = (Q_in[i, j] + Q_out[i, j]) / 2.0
-            assert abs(Q_daily[i, j] - expected) < 1e-5, (
-                f"Q_daily mismatch at ({i},{j}): "
-                f"{Q_daily[i, j]:.6f} vs {expected:.6f}"
+            assert abs(Q_daily[i, j] - expected) < 1e-4, (
+                f"Q_daily mismatch at ({i},{j}): {Q_daily[i, j]:.6f} vs {expected:.6f}"
             )

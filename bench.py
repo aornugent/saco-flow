@@ -7,33 +7,15 @@ import taichi as ti
 
 from src.fields import allocate
 from src.flow import compute_flow_fractions
+from src.params import Params
 from src.simulate import step_day
 
 GRID_SIZES = [256, 512, 1024, 2048, 4096, 10000]
 N_WARMUP = 3
 N_STEPS = 10
 
-_DAILY = {
-    "dx": 1.0,
-    "n_manning": 0.03,
-    "cn": 1.0,
-    "alpha": 1.0,
-    "k2": 5.0,
-    "W0": 0.2,
-    "g_max": 0.1,
-    "k1": 0.1,
-    "rw": 0.01,
-    "c": 1.0,
-    "d": 0.01,
-    "Dp": 0.01,
-    "c1": 0.01,
-    "c2": 1.0,
-    "dt": 1.0,
-    "n_picard": 10,
-}
 
-
-def setup_grid(n: int):
+def setup_grid(n: int, params: Params):
     """Allocate fields with boundary mask, slope, rainfall, and initial conditions."""
     fields = allocate(n)
     mask = np.ones((n, n), dtype=np.int32)
@@ -45,25 +27,26 @@ def setup_grid(n: int):
         z[i, :] = float(n - i)
     fields.z.from_numpy(z)
 
-    fields.R.from_numpy(np.full((n, n), 0.01, dtype=np.float32))
+    fields.R.from_numpy(np.full((n, n), 10.0, dtype=np.float32))  # [mm/day]
     fields.V.from_numpy(np.full((n, n), 5.0, dtype=np.float32))
     fields.M.from_numpy(np.full((n, n), 0.1, dtype=np.float32))
 
-    compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, 1.0, 1.1)
+    compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, params.dx, params.p)
     return fields
 
 
 def bench_grid(n: int) -> dict:
     """Benchmark step_day on an n x n grid."""
-    fields = setup_grid(n)
+    params = Params(dx=1.0)
+    fields = setup_grid(n, params)
 
     for _ in range(N_WARMUP):
-        step_day(fields, **_DAILY)
+        step_day(fields, params, n_picard=10)
     ti.sync()
 
     start = time.perf_counter()
     for _ in range(N_STEPS):
-        step_day(fields, **_DAILY)
+        step_day(fields, params, n_picard=10)
     ti.sync()
     elapsed = time.perf_counter() - start
 

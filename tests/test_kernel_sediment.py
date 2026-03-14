@@ -2,12 +2,14 @@
 
 Sections 5-6 of the test plan: transport capacity, erosion/deposition regimes,
 equilibrium, K/P interpolation, and elevation mass conservation.
+
+Q_annual is now mm*m/yr (unit-width, mm-based). The sediment kernel
+converts to m^2/yr via q = Q * 0.001.
 """
 
 import math
 
 import numpy as np
-import pytest
 import taichi as ti
 
 from src.flow import compute_flow_fractions
@@ -16,7 +18,7 @@ from src.sediment import (
     sediment_transport,
     update_elevation,
 )
-from src.stencil import DIAG, OFFSETS, OPP
+from src.stencil import OFFSETS, OPP
 
 
 # Wrapper kernel to test _erosion_deposition_coeffs from Python
@@ -38,15 +40,28 @@ def _test_kp_coeffs(
 
 def _run_sediment(fields, dx, **kwargs):
     """Run sediment_transport with defaults."""
-    defaults = dict(
-        gamma=1.0, m_exp=1.65, n_exp=1.65,
-        K_max=0.05, K_min=0.00005, P_min=0.05, P_max=50.0,
-        v_low=5.0, v_high=20.0,
-    )
+    defaults = {
+        "gamma": 1.0,
+        "m_exp": 1.65,
+        "n_exp": 1.65,
+        "K_max": 0.05,
+        "K_min": 0.00005,
+        "P_min": 0.05,
+        "P_max": 50.0,
+        "v_low": 5.0,
+        "v_high": 20.0,
+    }
     defaults.update(kwargs)
     sediment_transport(
-        fields.S, fields.S_new, fields.Q_annual, fields.z, fields.V,
-        fields.flow_frac, fields.mask, dx, **defaults,
+        fields.S,
+        fields.S_new,
+        fields.Q_annual,
+        fields.z,
+        fields.V,
+        fields.flow_frac,
+        fields.mask,
+        dx,
+        **defaults,
     )
 
 
@@ -56,8 +71,8 @@ def _run_sediment(fields, dx, **kwargs):
 def test_sediment_transport_capacity(grid):
     """5.1: Transport capacity formula — exact value.
 
-    Q_annual=100 m³/yr, slope=0.02, gamma=1.0, m=n=1.65, dx=5.0.
-    q = 100/5 = 20. C = 1.0 * 20^1.65 * 0.02^1.65.
+    Q_annual=100000 mm*m/yr -> q=100 m^2/yr, slope=0.02, gamma=1.0, m=n=1.65, dx=5.0.
+    C = 1.0 * 100^1.65 * 0.02^1.65.
     """
     n = 5
     dx = 5.0
@@ -69,11 +84,12 @@ def test_sediment_transport_capacity(grid):
     z[3, 2] = 10.0 - 0.02 * dx  # south neighbor
     fields.z.from_numpy(z)
 
+    # Q_annual in mm*m/yr: want q = Q*0.001 = 20 m^2/yr -> Q = 20000
     Q_annual = np.zeros((n, n), dtype=np.float32)
-    Q_annual[2, 2] = 100.0
+    Q_annual[2, 2] = 20000.0  # mm*m/yr -> q = 20 m^2/yr
     fields.Q_annual.from_numpy(Q_annual)
 
-    # S = 0 → erosion regime, S_new should approach C
+    # S = 0 -> erosion regime, S_new should approach C
     fields.S.from_numpy(np.zeros((n, n), dtype=np.float32))
     fields.V.from_numpy(np.full((n, n), 10.0, dtype=np.float32))
 
@@ -82,7 +98,7 @@ def test_sediment_transport_capacity(grid):
     _run_sediment(fields, dx)
 
     # Hand computation
-    q = 100.0 / dx  # 20.0
+    q = 20000.0 * 0.001  # 20.0 m^2/yr
     slope = 0.02
     C = 1.0 * (q**1.65) * (slope**1.65)
 
@@ -91,13 +107,11 @@ def test_sediment_transport_capacity(grid):
     # S_0 = 0 (no upslope sediment), so:
     # S_new = C + (0 - C) * exp(-dx/h_sed) = C * (1 - exp(-dx/h_sed))
     # S_new should be between 0 and C
-    assert 0 < S_new[2, 2] < C * 1.01, (
-        f"S_new={S_new[2, 2]:.6f} not in (0, C={C:.6f})"
-    )
+    assert 0 < S_new[2, 2] < C * 1.01, f"S_new={S_new[2, 2]:.6f} not in (0, C={C:.6f})"
 
 
 def test_sediment_erosion_regime(grid):
-    """5.2: Erosion regime — S_0 < C → 0 < S_new < C, matches formula."""
+    """5.2: Erosion regime — S_0 < C -> 0 < S_new < C, matches formula."""
     n = 5
     dx = 5.0
     fields = grid(n)
@@ -108,7 +122,7 @@ def test_sediment_erosion_regime(grid):
     fields.z.from_numpy(z)
 
     Q_annual = np.zeros((n, n), dtype=np.float32)
-    Q_annual[2, 2] = 100.0
+    Q_annual[2, 2] = 20000.0  # mm*m/yr -> q = 20 m^2/yr
     fields.Q_annual.from_numpy(Q_annual)
 
     fields.S.from_numpy(np.zeros((n, n), dtype=np.float32))
@@ -126,7 +140,7 @@ def test_sediment_erosion_regime(grid):
     S_new_val = S_new_arr[2, 2]
 
     # Compute expected
-    q = 100.0 / dx
+    q = 20000.0 * 0.001  # 20.0
     slope = 0.02
     C = (q**1.65) * (slope**1.65)
 
@@ -134,30 +148,32 @@ def test_sediment_erosion_regime(grid):
     t = math.log(V_val / v_low) / math.log(v_high / v_low)
     K = K_max + (K_min - K_max) * t
 
-    # S_0 = 0 < C → erosion, coeff = K
+    # S_0 = 0 < C -> erosion, coeff = K
     h_sed = C / max(K * q * slope, 1e-10)
     expected = C + (0 - C) * math.exp(-dx / h_sed)
 
     assert 0 < S_new_val < C, f"S_new={S_new_val} not in erosion range (0, {C})"
     rel_err = abs(S_new_val - expected) / max(expected, 1e-10)
-    assert rel_err < 1e-3, f"S_new={S_new_val:.6f}, expected={expected:.6f}, rel_err={rel_err:.2e}"
+    assert rel_err < 1e-3, (
+        f"S_new={S_new_val:.6f}, expected={expected:.6f}, rel_err={rel_err:.2e}"
+    )
 
 
 def test_sediment_deposition_regime(grid):
-    """5.3: Deposition regime — S_0 > C → C < S_new < S_0."""
+    """5.3: Deposition regime — S_0 > C -> C < S_new < S_0."""
     n = 5
     dx = 5.0
     fields = grid(n)
 
-    # Gentle slope, low Q → small C
+    # Gentle slope, low Q -> small C
     z = np.full((n, n), 10.0, dtype=np.float32)
     z[2, 2] = 10.0
     z[3, 2] = 10.0 - 0.01 * dx
     fields.z.from_numpy(z)
 
     Q_annual = np.zeros((n, n), dtype=np.float32)
-    Q_annual[2, 2] = 10.0  # low Q
-    Q_annual[1, 2] = 10.0  # upslope neighbor
+    Q_annual[2, 2] = 2000.0  # mm*m/yr -> q = 2 m^2/yr (low)
+    Q_annual[1, 2] = 2000.0  # upslope neighbor
     fields.Q_annual.from_numpy(Q_annual)
 
     # High incoming sediment from upslope
@@ -176,13 +192,13 @@ def test_sediment_deposition_regime(grid):
     S_new_val = S_new_arr[2, 2]
 
     # Transport capacity at [2,2]
-    q = 10.0 / dx
+    q = 2000.0 * 0.001  # 2.0
     slope = 0.01
     C = (q**1.65) * (slope**1.65)
 
     # S_0 gathered from upslope [1,2]
     frac = fields.flow_frac.to_numpy()
-    # [1,2] → [2,2] is direction south (k=6), so flow_frac[1,2,6]
+    # [1,2] -> [2,2] is direction south (k=6), so flow_frac[1,2,6]
     S_0 = frac[1, 2, 6] * 100.0
 
     if S_0 > C:
@@ -203,18 +219,18 @@ def test_sediment_equilibrium(grid):
     fields.z.from_numpy(z)
 
     Q_annual = np.zeros((n, n), dtype=np.float32)
-    Q_annual[2, 2] = 100.0
-    Q_annual[1, 2] = 100.0  # upslope
+    Q_annual[2, 2] = 20000.0  # mm*m/yr -> q = 20
+    Q_annual[1, 2] = 20000.0  # upslope
     fields.Q_annual.from_numpy(Q_annual)
 
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, 1.0)
 
     # Compute C at [2,2]
-    q = 100.0 / dx
+    q = 20000.0 * 0.001  # 20.0
     slope = 0.02
     C = (q**1.65) * (slope**1.65)
 
-    # Set upslope S = C so gathered S_0 ≈ C
+    # Set upslope S = C so gathered S_0 ~ C
     frac = fields.flow_frac.to_numpy()
     # Need S[1,2] such that flow_frac[1,2,south] * S[1,2] = C
     f_south = frac[1, 2, 6]
@@ -287,7 +303,7 @@ def _reconstruct_S0(S, flow_frac, mask):
 
 
 def test_elevation_erosion(grid):
-    """6.1: Erosion lowers elevation — S_0 < S_new → dz < 0."""
+    """6.1: Erosion lowers elevation — S_0 < S_new -> dz < 0."""
     n = 5
     dx = 5.0
     fields = grid(n)
@@ -300,17 +316,18 @@ def test_elevation_erosion(grid):
 
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, 1.0)
 
-    # S = 0 (gathered S_0 ≈ 0), S_new > 0 (erosion)
+    # S = 0 (gathered S_0 ~ 0), S_new > 0 (erosion)
     fields.S.from_numpy(np.zeros((n, n), dtype=np.float32))
     S_new = np.full((n, n), 15.0, dtype=np.float32)
     fields.S_new.from_numpy(S_new)
 
-    update_elevation(fields.z, fields.S, fields.S_new, fields.flow_frac, fields.mask, dx)
+    update_elevation(
+        fields.z, fields.S, fields.S_new, fields.flow_frac, fields.mask, dx
+    )
 
     z_final = fields.z.to_numpy()
-    mask = fields.mask.to_numpy()
 
-    # At [2,2]: S_0 ≈ 0 (neighbors S=0), S_new=15
+    # At [2,2]: S_0 ~ 0 (neighbors S=0), S_new=15
     # dz = (0 - 15)/5 = -3.0
     expected_dz = (0.0 - 15.0) / dx
     actual_dz = z_final[2, 2] - z0[2, 2]
@@ -320,7 +337,7 @@ def test_elevation_erosion(grid):
 
 
 def test_elevation_deposition(grid):
-    """6.2: Deposition raises elevation — S_0 > S_new → dz > 0."""
+    """6.2: Deposition raises elevation — S_0 > S_new -> dz > 0."""
     n = 5
     dx = 5.0
     fields = grid(n)
@@ -344,7 +361,9 @@ def test_elevation_deposition(grid):
     mask_np = fields.mask.to_numpy()
     S_0 = _reconstruct_S0(S, frac, mask_np)
 
-    update_elevation(fields.z, fields.S, fields.S_new, fields.flow_frac, fields.mask, dx)
+    update_elevation(
+        fields.z, fields.S, fields.S_new, fields.flow_frac, fields.mask, dx
+    )
 
     z_final = fields.z.to_numpy()
     expected_dz = (S_0[2, 2] - 5.0) / dx
@@ -356,7 +375,7 @@ def test_elevation_deposition(grid):
 
 
 def test_elevation_mass_conservation(grid):
-    """6.3: Sediment mass conservation — Σ Δz ≈ 0 on closed domain."""
+    """6.3: Sediment mass conservation — sum dz ~ 0 on closed domain."""
     n = 8
     dx = 1.0
     fields = grid(n)
@@ -364,15 +383,14 @@ def test_elevation_mass_conservation(grid):
     z = np.zeros((n, n), dtype=np.float32)
     for i in range(n):
         z[i, :] = float(n - 1 - i)
-    z0 = z.copy()
     fields.z.from_numpy(z)
 
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, 1.0)
 
-    # Run sediment transport to get realistic S and S_new
+    # Q_annual in mm*m/yr
     Q = np.zeros((n, n), dtype=np.float32)
     for i in range(n):
-        Q[i, :] = float(i) * 0.5
+        Q[i, :] = float(i) * 500.0  # mm*m/yr -> q = i*0.5 m^2/yr
     fields.Q_annual.from_numpy(Q)
     fields.V.from_numpy(np.full((n, n), 10.0, dtype=np.float32))
     fields.S.from_numpy(np.zeros((n, n), dtype=np.float32))
@@ -385,24 +403,22 @@ def test_elevation_mass_conservation(grid):
     # Now do one more transport + elevation update
     _run_sediment(fields, dx)
 
-    # Before swapping S, compute expected Δz
-    S_pre = fields.S.to_numpy()
-    S_new_pre = fields.S_new.to_numpy()
     z_before = fields.z.to_numpy().copy()
-    frac = fields.flow_frac.to_numpy()
     mask_np = fields.mask.to_numpy()
 
-    update_elevation(fields.z, fields.S, fields.S_new, fields.flow_frac, fields.mask, dx)
+    update_elevation(
+        fields.z, fields.S, fields.S_new, fields.flow_frac, fields.mask, dx
+    )
 
     z_after = fields.z.to_numpy()
     dz = z_after - z_before
 
-    # Verify Σ Δz ≈ 0 for interior cells
+    # Verify sum dz ~ 0 for interior cells
     interior = mask_np == 1
     total_dz = np.sum(dz[interior])
     max_dz = np.max(np.abs(dz[interior]))
     n_interior = np.sum(interior)
 
     assert abs(total_dz) < 1e-2 * max_dz * n_interior, (
-        f"|Σ Δz|={abs(total_dz):.4f}, bound={1e-2 * max_dz * n_interior:.4f}"
+        f"|sum dz|={abs(total_dz):.4f}, bound={1e-2 * max_dz * n_interior:.4f}"
     )

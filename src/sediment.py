@@ -62,19 +62,18 @@ def sediment_transport(
     """Gather-based sediment transport via stream power.
 
     1. Gather S_0 from upslope neighbors
-    2. Q = Q_annual / dx  [m^2/yr]  (paper's convention)
-    3. Transport capacity C = gamma * Q^m * slope^n  (Eq 2)
-    4. h_sed = C / (beta * Q * slope)  (Eqs 4-5)
+    2. q = Q_annual * 0.001  [m^2/yr]  (mm*m/yr -> m^2/yr)
+    3. Transport capacity C = gamma * q^m * slope^n  (Eq 2)
+    4. h_sed = C / (beta * q * slope)  (Eqs 4-5)
     5. S = C + (S_0 - C) * exp(-dx / h_sed)  (Eq 3)
 
-    Q_annual (m^3/yr) is the accumulated daily volumetric discharge over
-    the year.  Dividing by dx gives Q in m^2/yr — the paper's unit-width
-    annual discharge used directly in the LAPSUS equations.
+    Q_annual (mm*m/yr) is the accumulated daily unit-width discharge over
+    the year.  Multiplying by 0.001 gives q in m^2/yr — the LAPSUS units.
 
     Args:
         S: Sediment flux read [kg/m/yr]
         S_new: Sediment flux write [kg/m/yr]
-        Q: Annual cumulative volumetric discharge [m^3/yr]
+        Q: Annual cumulative unit-width discharge [mm*m/yr]
         z: Elevation [m]
         V: Vegetation density [%]
         flow_frac: MFD fractions (n, n, 8)
@@ -100,8 +99,8 @@ def sediment_transport(
         # Max downslope gradient
         slope_max = max_downslope(z, flow_frac, i, j, dx)
 
-        # Unit-width discharge [m^2/yr] — paper's Q convention
-        q = Q[i, j] / dx
+        # Unit-width discharge [m^2/yr] — mm*m/yr -> m^2/yr
+        q = Q[i, j] * 0.001
 
         # Transport capacity C = gamma * q^m * slope^n
         C = gamma * ti.pow(ti.max(q, 0.0), m_exp) * ti.pow(slope_max, n_exp)

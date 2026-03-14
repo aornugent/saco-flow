@@ -3,40 +3,40 @@ and dimensional checks.
 
 Sections 7-9, 11 of the test plan: unit conversion, water budget,
 Q_annual accumulation, and CFL/parameter assertions.
+
+With the mm-based unit system:
+  - R, I_inf, M are in mm/day or mm
+  - Q is unit-width mm*m/day (daily) or mm*m/yr (annual)
+  - No _scale_field needed; route_water produces I_inf in mm/day directly
 """
 
-import math
+from dataclasses import replace
 
 import numpy as np
-import pytest
-from dataclasses import replace
 
 from src.flow import compute_flow_fractions, route_water
 from src.params import Params
-from src.simulate import _scale_field, step_day, step_year
-from src.stencil import OFFSETS, OPP
+from src.simulate import step_day, step_year
 
 # Base params for integration tests.  Override per-test as needed.
 _PARAMS = Params()
 
 
-
-
 # ── Section 7: Unit Conversion ───────────────────────────────────────────────
 
 
-def test_I_inf_scaling(slope_grid):
-    """7.1: I_inf scaling from m/day → mm/day.
+def test_I_inf_units_from_route_water(slope_grid):
+    """7.1: I_inf comes out of route_water in mm/day directly.
 
-    With alpha=0, I_inf should be 0 before and after scaling.
-    With alpha>0, I_inf_after = I_inf_before * 1000.
+    With alpha=0, I_inf should be 0.
+    With alpha>0, I_inf should be positive and in mm/day.
     """
     n = 5
     dx = 1.0
     fields = slope_grid(n, dx)
 
-    R = np.full((n, n), 0.01, dtype=np.float32)
-    fields.R.from_numpy(R)
+    R_mm = 10.0  # mm/day
+    fields.R.from_numpy(np.full((n, n), R_mm, dtype=np.float32))
     fields.V.from_numpy(np.full((n, n), 10.0, dtype=np.float32))
     fields.M.from_numpy(np.full((n, n), 1.0, dtype=np.float32))
 
@@ -45,59 +45,74 @@ def test_I_inf_scaling(slope_grid):
     # Test with alpha=0: I_inf should be 0
     for _ in range(5):
         route_water(
-            fields.Q_out, fields.Q_out_new, fields.Q_daily, fields.R,
-            fields.I_inf, fields.h, fields.z, fields.V, fields.flow_frac,
-            fields.mask, p.dx, p.n_manning, p.cn, p.alpha, p.k2, p.W0,
+            fields.Q_out,
+            fields.Q_out_new,
+            fields.Q_daily,
+            fields.R,
+            fields.I_inf,
+            fields.z,
+            fields.V,
+            fields.flow_frac,
+            fields.mask,
+            p.dx,
+            p.n_manning,
+            p.cn,
+            p.alpha,
+            p.k2,
+            p.W0,
         )
         fields.swap("Q_out")
 
-    I_before = fields.I_inf.to_numpy().copy()
-    _scale_field(fields.I_inf, 1000.0)
-    I_after = fields.I_inf.to_numpy()
-
+    I_inf = fields.I_inf.to_numpy()
     mask = fields.mask.to_numpy()
     interior = mask == 1
-    # With alpha=0: both should be 0
-    assert np.allclose(I_before[interior], 0.0, atol=1e-8)
-    assert np.allclose(I_after[interior], 0.0, atol=1e-5)
+    assert np.allclose(I_inf[interior], 0.0, atol=1e-8)
 
-    # Now test with alpha > 0
+    # Now test with alpha > 0 — I_inf should be positive mm/day
     p_alpha = replace(p, alpha=1.0)
     fields.Q_out.fill(0.0)
     for _ in range(5):
         route_water(
-            fields.Q_out, fields.Q_out_new, fields.Q_daily, fields.R,
-            fields.I_inf, fields.h, fields.z, fields.V, fields.flow_frac,
-            fields.mask, p_alpha.dx, p_alpha.n_manning, p_alpha.cn,
-            p_alpha.alpha, p_alpha.k2, p_alpha.W0,
+            fields.Q_out,
+            fields.Q_out_new,
+            fields.Q_daily,
+            fields.R,
+            fields.I_inf,
+            fields.z,
+            fields.V,
+            fields.flow_frac,
+            fields.mask,
+            p_alpha.dx,
+            p_alpha.n_manning,
+            p_alpha.cn,
+            p_alpha.alpha,
+            p_alpha.k2,
+            p_alpha.W0,
         )
         fields.swap("Q_out")
 
-    I_before = fields.I_inf.to_numpy().copy()
-    _scale_field(fields.I_inf, 1000.0)
-    I_after = fields.I_inf.to_numpy()
-
-    for i in range(1, n - 1):
-        for j in range(1, n - 1):
-            if mask[i, j] and I_before[i, j] > 1e-10:
-                ratio = I_after[i, j] / I_before[i, j]
-                assert abs(ratio - 1000.0) < 1e-3, (
-                    f"Scaling at ({i},{j}): ratio={ratio:.4f}"
-                )
+    I_inf = fields.I_inf.to_numpy()
+    # I_inf should be positive where there's water
+    assert np.any(I_inf[interior] > 0.0), "Expected nonzero infiltration with alpha=1"
+    # I_inf should be in mm/day range (not m/day)
+    max_I = np.max(I_inf[interior])
+    assert max_I > 0.1, f"I_inf seems too small for mm/day: max={max_I:.6f}"
+    # Downstream cells accumulate flow, so I_inf can exceed R locally
+    assert max_I < 1000.0, f"I_inf unreasonably large: max={max_I:.4f}"
 
 
 def test_no_cross_contamination(slope_grid):
     """7.2: No cross-contamination between substeps.
 
-    Soil moisture sees scaled I_inf and pre-step V.
+    Soil moisture sees I_inf (mm/day) and pre-step V.
     Vegetation sees post-step M and current Q_daily.
     """
     n = 5
     dx = 1.0
     fields = slope_grid(n, dx)
 
-    R = np.full((n, n), 0.01, dtype=np.float32)
-    fields.R.from_numpy(R)
+    R_mm = 10.0  # mm/day
+    fields.R.from_numpy(np.full((n, n), R_mm, dtype=np.float32))
     fields.V.from_numpy(np.full((n, n), 10.0, dtype=np.float32))
     fields.M.from_numpy(np.full((n, n), 1.0, dtype=np.float32))
 
@@ -109,7 +124,7 @@ def test_no_cross_contamination(slope_grid):
 
     step_day(fields, params)
 
-    # After step_day: V and M have been swapped (V_new→V, M_new→M)
+    # After step_day: V swapped (V_new->V), M updated in-place
     V_after = fields.V.to_numpy()
     M_after = fields.M.to_numpy()
 
@@ -132,39 +147,32 @@ def test_no_cross_contamination(slope_grid):
 def test_daily_water_budget(slope_grid):
     """8.1: Water budget over 10 days closes within 5%.
 
-    water_in ≈ water_infil + water_Q_exit (approximately).
+    water_in ~ water_infil + water_Q_exit (approximately).
     """
     n = 16
     dx = 1.0
     fields = slope_grid(n, dx)
 
-    R_val = 0.005
-    fields.R.from_numpy(np.full((n, n), R_val, dtype=np.float32))
+    R_mm = 5.0  # mm/day
+    fields.R.from_numpy(np.full((n, n), R_mm, dtype=np.float32))
     fields.V.from_numpy(np.full((n, n), 5.0, dtype=np.float32))
     fields.M.from_numpy(np.full((n, n), 0.1, dtype=np.float32))
 
     mask = fields.mask.to_numpy()
     interior = mask == 1
-    cell_area = dx * dx
 
     params = replace(_PARAMS, dx=dx, alpha=0.5, n_manning=0.03, k2=5.0, W0=0.2)
 
     total_infil = 0.0
-    M_initial = fields.M.to_numpy().copy()
 
     for _ in range(10):
         step_day(fields, params)
-        # I_inf was scaled to mm/day inside step_day; convert back for budget
-        I_inf_mm = fields.I_inf.to_numpy()  # mm/day after scaling
-        total_infil += np.sum(I_inf_mm[interior]) / 1000.0 * cell_area
+        I_inf_mm = fields.I_inf.to_numpy()
+        total_infil += np.sum(I_inf_mm[interior]) * dx  # mm/day * m = mm*m/day
 
-    total_supply = 10 * np.sum(np.ones_like(mask[interior], dtype=float)) * R_val * cell_area
-    M_final = fields.M.to_numpy()
-    dM = np.sum((M_final[interior] - M_initial[interior])) * cell_area  # mm * m²
+    total_supply = 10 * np.sum(np.ones_like(mask[interior], dtype=float)) * R_mm * dx
 
-    # Budget: supply ≈ infiltration + Q_exit
-    # infiltration ≈ dM + uptake + drainage (but we only track total infil)
-    # Check supply vs infiltration order of magnitude
+    # Budget: supply ~ infiltration + Q_exit
     assert total_infil > 0, "No infiltration occurred"
     assert total_supply > 0, "No supply"
 
@@ -178,7 +186,7 @@ def test_daily_no_water_no_growth(slope_grid):
     dx = 1.0
     fields = slope_grid(n, dx)
 
-    fields.R.from_numpy(np.zeros((n, n), dtype=np.float32))
+    fields.R.from_numpy(np.zeros((n, n), dtype=np.float32))  # 0 mm/day
     fields.V.from_numpy(np.full((n, n), 10.0, dtype=np.float32))
     fields.M.from_numpy(np.zeros((n, n), dtype=np.float32))
 
@@ -197,7 +205,7 @@ def test_daily_no_water_no_growth(slope_grid):
         f"min_initial={V_initial.min():.4f}"
     )
 
-    # Approximate: V_final ≈ V_initial * (1 − d*dt)^30
+    # Approximate: V_final ~ V_initial * (1 - d*dt)^30
     d = params.d
     expected_ratio = (1.0 - d) ** 30
     actual_ratio = np.mean(V_final) / np.mean(V_initial)
@@ -213,27 +221,37 @@ def test_daily_no_water_no_growth(slope_grid):
 def test_annual_Q_accumulation(grid):
     """9.1: Q_annual accumulation over one year with constant R.
 
-    Flat grid, zero infiltration: Q_daily = R*dx²/2.
-    Q_annual = days * R * dx² / 2 at each interior cell.
+    Flat grid, zero infiltration: Q_daily = R_mm*dx/2 [mm*m/day].
+    Q_annual = days * R_mm * dx / 2 at each interior cell.
     """
     n = 8
     dx = 1.0
     fields = grid(n)
 
-    # Flat grid → no flow between cells, Q_out = R*dx², Q_daily = R*dx²/2
+    # Flat grid -> no flow between cells, Q_out = R_mm*dx, Q_daily = R_mm*dx/2
     z = np.full((n, n), 10.0, dtype=np.float32)
     fields.z.from_numpy(z)
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, 1.0)
 
-    R_val = 0.01
+    R_val = 0.01  # m/day (converted to mm/day inside step_year)
+    R_mm = R_val * 1000.0  # 10 mm/day
     days = 30  # Use fewer days for speed
 
     params = replace(
         _PARAMS,
-        dx=dx, p=1.0,
-        alpha=0.0, n_manning=0.03, k2=5.0, W0=0.2,
-        gamma=0.01, m_exp=1.0, n_exp=1.0,
-        K_max=0.1, K_min=0.001, P_min=0.001, P_max=0.1,
+        dx=dx,
+        p=1.0,
+        alpha=0.0,
+        n_manning=0.03,
+        k2=5.0,
+        W0=0.2,
+        gamma=0.01,
+        m_exp=1.0,
+        n_exp=1.0,
+        K_max=0.1,
+        K_min=0.001,
+        P_min=0.001,
+        P_max=0.1,
     )
     step_year(
         fields,
@@ -244,8 +262,9 @@ def test_annual_Q_accumulation(grid):
     Q_annual = fields.Q_annual.to_numpy()
     mask = fields.mask.to_numpy()
 
-    # On a flat grid with alpha=0: Q_in=0, Q_out=R*dx², Q_daily=(0+R*dx²)/2
-    expected = days * R_val * dx * dx / 2.0
+    # On a flat grid with alpha=0: Q_in=0, Q_out=R_mm*dx, Q_daily=R_mm*dx/2
+    # Q_annual = days * R_mm * dx / 2
+    expected = days * R_mm * dx / 2.0
 
     for i in range(1, n - 1):
         for j in range(1, n - 1):
@@ -263,7 +282,7 @@ def test_annual_elevation_bounded(slope_grid):
     dx = 5.0
     fields = slope_grid(n, dx, p=2.0)
 
-    R_val = 0.01
+    R_val = 0.01  # m/day
     fields.V.from_numpy(np.full((n, n), 5.0, dtype=np.float32))
     fields.M.from_numpy(np.full((n, n), 0.1, dtype=np.float32))
 
@@ -283,7 +302,7 @@ def test_annual_elevation_bounded(slope_grid):
     dz = z_after - z_before
     max_S = np.max(fields.S.to_numpy())
 
-    # |Δz| ≤ max_S / dx (sanity bound)
+    # |dz| <= max_S / dx (sanity bound)
     if max_S > 0:
         bound = max_S / dx
         violations = np.abs(dz[interior]) > bound * 1.1  # 10% margin
@@ -292,12 +311,12 @@ def test_annual_elevation_bounded(slope_grid):
             f"bound={bound:.4f}"
         )
 
-    # Total |Σ Δz| should be small relative to domain relief
+    # Total |sum dz| should be small relative to domain relief
     relief = np.max(z_before[interior]) - np.min(z_before[interior])
     total_dz = abs(np.sum(dz[interior]))
     if relief > 0:
         assert total_dz < 0.01 * relief * np.sum(interior), (
-            f"|Σ Δz|={total_dz:.4f} too large relative to relief={relief:.4f}"
+            f"|sum dz|={total_dz:.4f} too large relative to relief={relief:.4f}"
         )
 
 
@@ -307,7 +326,7 @@ def test_annual_flow_fracs_updated(slope_grid):
     dx = 5.0
     fields = slope_grid(n, dx, p=2.0)
 
-    R_val = 0.01
+    R_val = 0.01  # m/day
     fields.V.from_numpy(np.full((n, n), 5.0, dtype=np.float32))
     fields.M.from_numpy(np.full((n, n), 0.1, dtype=np.float32))
 
@@ -336,7 +355,7 @@ def test_annual_flow_fracs_updated(slope_grid):
 
 
 def test_cfl_diffusion():
-    """11.1: CFL condition for isotropic diffusion: Dp*dt/dx² < 0.25."""
+    """11.1: CFL condition for isotropic diffusion: Dp*dt/dx^2 < 0.25."""
     p = Params()
     cfl = p.Dp * 1.0 / (p.dx * p.dx)
     assert cfl < 0.25, f"CFL violated: {cfl:.6f} >= 0.25"
@@ -356,15 +375,16 @@ def test_growth_overcomes_mortality():
 def test_infiltration_units_pipeline(slope_grid):
     """11.3: Infiltration units through the pipeline.
 
-    route_water produces I_inf in m/day.
-    _scale_field multiplies by 1000 → mm/day.
+    route_water produces I_inf directly in mm/day.
     soil_moisture_step consumes mm/day.
+    No scaling step needed.
     """
     n = 5
     dx = 1.0
     fields = slope_grid(n, dx)
 
-    fields.R.from_numpy(np.full((n, n), 0.01, dtype=np.float32))
+    R_mm = 10.0  # mm/day
+    fields.R.from_numpy(np.full((n, n), R_mm, dtype=np.float32))
     fields.V.from_numpy(np.full((n, n), 10.0, dtype=np.float32))
 
     p = replace(_PARAMS, dx=dx, alpha=1.0, n_manning=0.03, k2=5.0, W0=0.2)
@@ -372,22 +392,33 @@ def test_infiltration_units_pipeline(slope_grid):
     # Route water with alpha > 0
     for _ in range(5):
         route_water(
-            fields.Q_out, fields.Q_out_new, fields.Q_daily, fields.R,
-            fields.I_inf, fields.h, fields.z, fields.V, fields.flow_frac,
-            fields.mask, p.dx, p.n_manning, p.cn, p.alpha, p.k2, p.W0,
+            fields.Q_out,
+            fields.Q_out_new,
+            fields.Q_daily,
+            fields.R,
+            fields.I_inf,
+            fields.z,
+            fields.V,
+            fields.flow_frac,
+            fields.mask,
+            p.dx,
+            p.n_manning,
+            p.cn,
+            p.alpha,
+            p.k2,
+            p.W0,
         )
         fields.swap("Q_out")
 
-    I_m_per_day = fields.I_inf.to_numpy().copy()
-
-    # Scale
-    _scale_field(fields.I_inf, 1000.0)
-    I_mm_per_day = fields.I_inf.to_numpy()
-
+    I_inf = fields.I_inf.to_numpy()
     mask = fields.mask.to_numpy()
+
+    # I_inf should be in mm/day (positive where water flows)
     for i in range(1, n - 1):
         for j in range(1, n - 1):
-            if mask[i, j] and I_m_per_day[i, j] > 1e-10:
-                assert abs(I_mm_per_day[i, j] - I_m_per_day[i, j] * 1000.0) < 1e-4, (
-                    f"Unit mismatch at ({i},{j})"
+            if mask[i, j] and I_inf[i, j] > 0:
+                # Should be reasonable mm/day values (not m/day scale)
+                # Downstream cells accumulate flow, so I_inf can exceed R locally
+                assert I_inf[i, j] < 1000.0, (
+                    f"I_inf unreasonably large at ({i},{j}): {I_inf[i, j]:.4f}"
                 )
