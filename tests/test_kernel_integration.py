@@ -9,30 +9,17 @@ import math
 
 import numpy as np
 import pytest
+from dataclasses import replace
 
 from src.flow import compute_flow_fractions, route_water
+from src.params import Params
 from src.simulate import _scale_field, step_day, step_year
 from src.stencil import OFFSETS, OPP
 
+# Base params for integration tests.  Override per-test as needed.
+_PARAMS = Params()
 
-_DAILY = {
-    "dx": 1.0,
-    "n_manning": 0.03,
-    "cn": 1.0,
-    "alpha": 1.0,
-    "k2": 5.0,
-    "W0": 0.2,
-    "g_max": 0.05,
-    "k1": 5.0,
-    "rw": 0.19,
-    "c": 10.0,
-    "d": 0.13,
-    "Dp": 0.0007,
-    "c1": 0.005,
-    "c2": 0.0005,
-    "dt": 1.0,
-    "n_picard": 20,
-}
+
 
 
 # ── Section 7: Unit Conversion ───────────────────────────────────────────────
@@ -53,12 +40,14 @@ def test_I_inf_scaling(slope_grid):
     fields.V.from_numpy(np.full((n, n), 10.0, dtype=np.float32))
     fields.M.from_numpy(np.full((n, n), 1.0, dtype=np.float32))
 
+    p = replace(_PARAMS, dx=dx, alpha=0.0, n_manning=0.03, k2=5.0, W0=0.2)
+
     # Test with alpha=0: I_inf should be 0
     for _ in range(5):
         route_water(
             fields.Q_out, fields.Q_out_new, fields.Q_daily, fields.R,
             fields.I_inf, fields.h, fields.z, fields.V, fields.flow_frac,
-            fields.mask, dx, 0.03, 1.0, 0.0, 5.0, 0.2,
+            fields.mask, p.dx, p.n_manning, p.cn, p.alpha, p.k2, p.W0,
         )
         fields.swap("Q_out")
 
@@ -73,12 +62,14 @@ def test_I_inf_scaling(slope_grid):
     assert np.allclose(I_after[interior], 0.0, atol=1e-5)
 
     # Now test with alpha > 0
+    p_alpha = replace(p, alpha=1.0)
     fields.Q_out.fill(0.0)
     for _ in range(5):
         route_water(
             fields.Q_out, fields.Q_out_new, fields.Q_daily, fields.R,
             fields.I_inf, fields.h, fields.z, fields.V, fields.flow_frac,
-            fields.mask, dx, 0.03, 1.0, 1.0, 5.0, 0.2,
+            fields.mask, p_alpha.dx, p_alpha.n_manning, p_alpha.cn,
+            p_alpha.alpha, p_alpha.k2, p_alpha.W0,
         )
         fields.swap("Q_out")
 
@@ -110,11 +101,13 @@ def test_no_cross_contamination(slope_grid):
     fields.V.from_numpy(np.full((n, n), 10.0, dtype=np.float32))
     fields.M.from_numpy(np.full((n, n), 1.0, dtype=np.float32))
 
+    params = replace(_PARAMS, dx=dx, n_manning=0.03, k2=5.0, W0=0.2)
+
     # Snapshot before step_day
     V_before = fields.V.to_numpy().copy()
     M_before = fields.M.to_numpy().copy()
 
-    step_day(fields, **_DAILY)
+    step_day(fields, params)
 
     # After step_day: V and M have been swapped (V_new→V, M_new→M)
     V_after = fields.V.to_numpy()
@@ -154,11 +147,13 @@ def test_daily_water_budget(slope_grid):
     interior = mask == 1
     cell_area = dx * dx
 
+    params = replace(_PARAMS, dx=dx, alpha=0.5, n_manning=0.03, k2=5.0, W0=0.2)
+
     total_infil = 0.0
     M_initial = fields.M.to_numpy().copy()
 
     for _ in range(10):
-        step_day(fields, **{**_DAILY, "dx": dx, "alpha": 0.5})
+        step_day(fields, params)
         # I_inf was scaled to mm/day inside step_day; convert back for budget
         I_inf_mm = fields.I_inf.to_numpy()  # mm/day after scaling
         total_infil += np.sum(I_inf_mm[interior]) / 1000.0 * cell_area
@@ -191,9 +186,9 @@ def test_daily_no_water_no_growth(slope_grid):
     interior = mask == 1
     V_initial = fields.V.to_numpy()[interior].copy()
 
-    daily_params = {**_DAILY, "dx": dx, "alpha": 0.0}
+    params = replace(_PARAMS, dx=dx, alpha=0.0, n_manning=0.03, k2=5.0, W0=0.2)
     for _ in range(30):
-        step_day(fields, **daily_params)
+        step_day(fields, params)
 
     V_final = fields.V.to_numpy()[interior]
 
@@ -203,7 +198,7 @@ def test_daily_no_water_no_growth(slope_grid):
     )
 
     # Approximate: V_final ≈ V_initial * (1 − d*dt)^30
-    d = _DAILY["d"]
+    d = params.d
     expected_ratio = (1.0 - d) ** 30
     actual_ratio = np.mean(V_final) / np.mean(V_initial)
     # Allow 10% tolerance for dispersal smoothing
@@ -219,7 +214,7 @@ def test_annual_Q_accumulation(grid):
     """9.1: Q_annual accumulation over one year with constant R.
 
     Flat grid, zero infiltration: Q_daily = R*dx²/2.
-    Q_annual = 365 * R * dx² / 2 at each interior cell.
+    Q_annual = days * R * dx² / 2 at each interior cell.
     """
     n = 8
     dx = 1.0
@@ -233,15 +228,17 @@ def test_annual_Q_accumulation(grid):
     R_val = 0.01
     days = 30  # Use fewer days for speed
 
-    step_year(
-        fields,
-        p=1.0,
+    params = replace(
+        _PARAMS,
+        dx=dx, p=1.0,
+        alpha=0.0, n_manning=0.03, k2=5.0, W0=0.2,
         gamma=0.01, m_exp=1.0, n_exp=1.0,
         K_max=0.1, K_min=0.001, P_min=0.001, P_max=0.1,
-        v_low=5.0, v_high=20.0,
+    )
+    step_year(
+        fields,
+        params,
         rain=np.full(days, R_val, dtype=np.float32),
-        days_per_year=days,
-        **{**_DAILY, "dx": dx, "alpha": 0.0},
     )
 
     Q_annual = fields.Q_annual.to_numpy()
@@ -272,15 +269,11 @@ def test_annual_elevation_bounded(slope_grid):
 
     z_before = fields.z.to_numpy().copy()
 
+    params = replace(_PARAMS, dx=dx)
     step_year(
         fields,
-        p=2.0,
-        gamma=1.0, m_exp=1.65, n_exp=1.65,
-        K_max=0.05, K_min=0.00005, P_min=0.05, P_max=50.0,
-        v_low=5.0, v_high=20.0,
+        params,
         rain=np.full(30, R_val, dtype=np.float32),
-        days_per_year=30,  # Short for speed
-        **{**_DAILY, "dx": dx},
     )
 
     z_after = fields.z.to_numpy()
@@ -318,22 +311,17 @@ def test_annual_flow_fracs_updated(slope_grid):
     fields.V.from_numpy(np.full((n, n), 5.0, dtype=np.float32))
     fields.M.from_numpy(np.full((n, n), 0.1, dtype=np.float32))
 
+    params = replace(_PARAMS, dx=dx)
     step_year(
         fields,
-        p=2.0,
-        gamma=1.0, m_exp=1.65, n_exp=1.65,
-        K_max=0.05, K_min=0.00005, P_min=0.05, P_max=50.0,
-        v_low=5.0, v_high=20.0,
+        params,
         rain=np.full(10, R_val, dtype=np.float32),
-        days_per_year=10,
-        **{**_DAILY, "dx": dx},
     )
 
     # Save post-step_year flow_frac
     frac_after = fields.flow_frac.to_numpy().copy()
 
     # Recompute flow fractions from current z
-    z_after = fields.z.to_numpy()
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, 2.0)
     frac_recomputed = fields.flow_frac.to_numpy()
 
@@ -349,10 +337,8 @@ def test_annual_flow_fracs_updated(slope_grid):
 
 def test_cfl_diffusion():
     """11.1: CFL condition for isotropic diffusion: Dp*dt/dx² < 0.25."""
-    Dp = 0.0007
-    dt = 1.0
-    dx = 5.0
-    cfl = Dp * dt / (dx * dx)
+    p = Params()
+    cfl = p.Dp * 1.0 / (p.dx * p.dx)
     assert cfl < 0.25, f"CFL violated: {cfl:.6f} >= 0.25"
 
 
@@ -361,8 +347,10 @@ def test_growth_overcomes_mortality():
 
     c * g_max > d.
     """
-    c, g_max, d = 10.0, 0.05, 0.13
-    assert c * g_max > d, f"c*g_max={c * g_max} <= d={d}: vegetation always dies"
+    p = Params()
+    assert p.c * p.g_max > p.d, (
+        f"c*g_max={p.c * p.g_max} <= d={p.d}: vegetation always dies"
+    )
 
 
 def test_infiltration_units_pipeline(slope_grid):
@@ -379,12 +367,14 @@ def test_infiltration_units_pipeline(slope_grid):
     fields.R.from_numpy(np.full((n, n), 0.01, dtype=np.float32))
     fields.V.from_numpy(np.full((n, n), 10.0, dtype=np.float32))
 
+    p = replace(_PARAMS, dx=dx, alpha=1.0, n_manning=0.03, k2=5.0, W0=0.2)
+
     # Route water with alpha > 0
     for _ in range(5):
         route_water(
             fields.Q_out, fields.Q_out_new, fields.Q_daily, fields.R,
             fields.I_inf, fields.h, fields.z, fields.V, fields.flow_frac,
-            fields.mask, dx, 0.03, 1.0, 1.0, 5.0, 0.2,
+            fields.mask, p.dx, p.n_manning, p.cn, p.alpha, p.k2, p.W0,
         )
         fields.swap("Q_out")
 
