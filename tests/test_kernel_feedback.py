@@ -8,50 +8,19 @@ import numpy as np
 import pytest
 
 from src.flow import route_water
+from src.params import Params
 from src.simulate import _scale_field, step_year
 from src.soil_moisture import soil_moisture_step
 
-
-_DAILY = {
-    "dx": 5.0,
-    "n_manning": 0.05,
-    "cn": 1.0,
-    "alpha": 8.0,
-    "k2": 18.0,
-    "W0": 0.05,
-    "g_max": 0.05,
-    "k1": 5.0,
-    "rw": 0.19,
-    "c": 10.0,
-    "d": 0.13,
-    "Dp": 0.0007,
-    "c1": 0.005,
-    "c2": 0.0005,
-    "dt": 1.0,
-    "n_picard": 10,
-}
-
-_ANNUAL = {
-    "p": 2.0,
-    "gamma": 1.0,
-    "m_exp": 1.65,
-    "n_exp": 1.65,
-    "K_max": 0.05,
-    "K_min": 0.00005,
-    "P_min": 0.05,
-    "P_max": 50.0,
-    "v_low": 5.0,
-    "v_high": 20.0,
-}
+# Shared params for feedback tests (paper Table I/II values, dx=5 m).
+_PARAMS = Params()
 
 
-
-
-def _make_rain(days_per_year, n_wet=70, mean_depth=0.00417):
+def _make_rain(days, n_wet=70, mean_depth=0.00417):
     """Generate exponentially distributed rain on n_wet random days."""
     rng = np.random.default_rng(42)
-    rain = np.zeros(days_per_year, dtype=np.float32)
-    wet_days = rng.choice(days_per_year, n_wet, replace=False)
+    rain = np.zeros(days, dtype=np.float32)
+    wet_days = rng.choice(days, n_wet, replace=False)
     rain[wet_days] = rng.exponential(mean_depth, n_wet).astype(np.float32)
     return rain
 
@@ -68,24 +37,17 @@ def test_positive_feedback_vegetation_sustains(slope_grid):
     This demonstrates the positive feedback: V → enhanced I → more M → more growth.
     """
     n = 16
-    dx = _DAILY["dx"]
-    days_per_year = 90
-    rain = _make_rain(days_per_year, n_wet=30)
+    params = _PARAMS
+    rain = _make_rain(90, n_wet=30)
 
     results = {}
     for label, V_init in [("A", 0.0), ("B", 5.0)]:
-        fields = slope_grid(n, dx, p=2.0, step=0.07 * dx)
+        fields = slope_grid(n, params.dx, p=params.p, step=0.07 * params.dx)
         fields.V.from_numpy(np.full((n, n), V_init, dtype=np.float32))
         fields.M.from_numpy(np.full((n, n), 0.1, dtype=np.float32))
 
         for _ in range(5):
-            step_year(
-                fields,
-                rain=rain,
-                days_per_year=days_per_year,
-                **_DAILY,
-                **_ANNUAL,
-            )
+            step_year(fields, params, rain=rain)
 
         mask = fields.mask.to_numpy()
         V = fields.V.to_numpy()
@@ -107,11 +69,10 @@ def test_negative_feedback_vegetation_depletes_moisture(slope_grid):
     After 3 years: M in vegetated quadrant < M in bare quadrant.
     """
     n = 16
-    dx = _DAILY["dx"]
-    days_per_year = 60
-    rain = _make_rain(days_per_year, n_wet=20)
+    params = _PARAMS
+    rain = _make_rain(60, n_wet=20)
 
-    fields = slope(n, dx)
+    fields = slope_grid(n, params.dx, p=params.p, step=0.07 * params.dx)
 
     V_init = np.zeros((n, n), dtype=np.float32)
     V_init[1 : n // 2, 1 : n // 2] = 50.0  # upper-left quadrant
@@ -119,13 +80,7 @@ def test_negative_feedback_vegetation_depletes_moisture(slope_grid):
     fields.M.from_numpy(np.full((n, n), 0.1, dtype=np.float32))
 
     for _ in range(3):
-        step_year(
-            fields,
-            rain=rain,
-            days_per_year=days_per_year,
-            **_DAILY,
-            **_ANNUAL,
-        )
+        step_year(fields, params, rain=rain)
 
     mask = fields.mask.to_numpy()
     M = fields.M.to_numpy()
@@ -139,7 +94,7 @@ def test_negative_feedback_vegetation_depletes_moisture(slope_grid):
     assert M_veg < M_bare, f"Vegetated M={M_veg:.4f} should be < bare M={M_bare:.4f}"
 
 
-def _run_hydrology_only(fields, n_days, rain_depth, params):
+def _run_hydrology_only(fields, n_days, rain_depth, params: Params):
     """Run water routing + soil moisture for n_days (no vegetation dynamics).
 
     Uses g_max=0 so the soil moisture equation becomes dM/dt = I_inf - rw*M,
@@ -148,7 +103,7 @@ def _run_hydrology_only(fields, n_days, rain_depth, params):
     for _ in range(n_days):
         fields.R.fill(rain_depth)
 
-        for _ in range(params["n_picard"]):
+        for _ in range(20):
             route_water(
                 fields.Q_out,
                 fields.Q_out_new,
@@ -160,12 +115,12 @@ def _run_hydrology_only(fields, n_days, rain_depth, params):
                 fields.V,
                 fields.flow_frac,
                 fields.mask,
-                params["dx"],
-                params["n_manning"],
-                params["cn"],
-                params["alpha"],
-                params["k2"],
-                params["W0"],
+                params.dx,
+                params.n_manning,
+                params.cn,
+                params.alpha,
+                params.k2,
+                params.W0,
             )
             fields.swap("Q_out")
 
@@ -178,9 +133,9 @@ def _run_hydrology_only(fields, n_days, rain_depth, params):
             fields.V,
             fields.mask,
             0.0,  # g_max=0: no vegetation uptake
-            params["k1"],
-            params["rw"],
-            params["dt"],
+            params.k1,
+            params.rw,
+            1.0,
         )
         fields.swap("M")
 
@@ -200,16 +155,15 @@ def test_runoff_runon_moisture_gradient(slope_grid):
     Deterministic, runs in seconds.
     """
     n = 16
-    dx = _DAILY["dx"]
+    params = _PARAMS
     rain_depth = 0.01  # m/day — heavy enough that bare soil generates runoff
-    n_days = 60
 
     results = {}
     for label, V_val in [("bare", 0.0), ("veg", 20.0)]:
-        fields = slope_grid(n, dx, p=2.0, step=0.07 * dx)
+        fields = slope_grid(n, params.dx, p=params.p, step=0.07 * params.dx)
         fields.V.from_numpy(np.full((n, n), V_val, dtype=np.float32))
         fields.M.from_numpy(np.zeros((n, n), dtype=np.float32))
-        _run_hydrology_only(fields, n_days, rain_depth, _DAILY)
+        _run_hydrology_only(fields, 60, rain_depth, params)
 
         mask = fields.mask.to_numpy()
         M = fields.M.to_numpy()
@@ -228,11 +182,10 @@ def test_pattern_instability(slope_grid):
     std(V) should increase (pattern emerges from instability).
     """
     n = 32
-    dx = _DAILY["dx"]
-    days_per_year = 60
-    rain = _make_rain(days_per_year, n_wet=20)
+    params = _PARAMS
+    rain = _make_rain(60, n_wet=20)
 
-    fields = slope(n, dx)
+    fields = slope_grid(n, params.dx, p=params.p, step=0.07 * params.dx)
 
     rng = np.random.default_rng(42)
     V_init = (10.0 + rng.uniform(-0.1, 0.1, (n, n))).astype(np.float32)
@@ -245,13 +198,7 @@ def test_pattern_instability(slope_grid):
     std_initial = np.std(V_init[interior])
 
     for _ in range(5):
-        step_year(
-            fields,
-            rain=rain,
-            days_per_year=days_per_year,
-            **_DAILY,
-            **_ANNUAL,
-        )
+        step_year(fields, params, rain=rain)
 
     V_final = fields.V.to_numpy()
     std_final = np.std(V_final[interior])
