@@ -15,25 +15,6 @@ from src.stencil import DIAG, OFFSETS, gather_flux, max_downslope
 
 
 @ti.kernel
-def accumulate_annual_Q(
-    Q_annual: ti.template(),
-    Q_daily: ti.template(),
-    mask: ti.template(),
-):
-    """Add daily cell-average discharge into annual accumulator.
-
-    Args:
-        Q_annual: Running annual total (read/write) [mm*m/yr]
-        Q_daily: Daily cell-average discharge [mm*m/day]
-        mask: Active cell mask
-    """
-    n = Q_annual.shape[0]
-    for i, j in ti.ndrange(n, n):
-        if mask[i, j] == 1:
-            Q_annual[i, j] += Q_daily[i, j]
-
-
-@ti.kernel
 def compute_flow_fractions(
     z: ti.template(),
     mask: ti.template(),
@@ -146,6 +127,9 @@ def route_water(
         Q_o = Q_out[i, j]  # initial guess from previous global pass
         I_val = ti.cast(0.0, ti.f32)
 
+        # Vegetation infiltration fraction — constant across Picard iterations
+        veg_frac = (v + k2 * W0) / (v + k2)
+
         for _ in ti.static(range(5)):
             # Eq 12: q = (Q_in + Q_out) / 2  [mm*m/day]
             q = (Q_in + Q_o) / 2.0
@@ -157,9 +141,9 @@ def route_water(
                     q * 0.001 * n_manning / (cn * ti.sqrt(slope_max)),
                     0.6,
                 )
-            # I = alpha * h * (V + k2*W0) / (V + k2) * 1000  [mm/day]
+            # I = alpha * h * veg_frac * 1000  [mm/day]
             # alpha*h gives m/day; *1000 converts to mm/day
-            I_val = alpha * h_val * (v + k2 * W0) / (v + k2) * 1000.0
+            I_val = alpha * h_val * veg_frac * 1000.0
             # Q_out = max(0, Q_in + R*dx - I*dx)  [mm*m/day]
             Q_o = ti.max(0.0, Q_in + R[i, j] * dx - I_val * dx)
 
