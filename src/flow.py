@@ -9,7 +9,7 @@ Picard iteration resolves the q-h-I-Q_out coupling within each cell.
 
 import taichi as ti
 
-from src.stencil import DIAG, OFFSETS, OPP
+from src.stencil import DIAG, OFFSETS, OPP, gather_flux, max_downslope
 
 
 @ti.kernel
@@ -136,23 +136,10 @@ def route_water(
             continue
 
         # Gather incoming flow from upslope neighbors
-        Q_in = ti.cast(0.0, ti.f32)
-        for k in ti.static(range(8)):
-            di, dj = ti.static(OFFSETS[k])
-            ni, nj = i + di, j + dj
-            if mask[ni, nj] == 1:
-                opp = ti.static(OPP[k])
-                Q_in += flow_frac[ni, nj, opp] * Q_out[ni, nj]
+        Q_in = gather_flux(Q_out, flow_frac, mask, i, j)
 
         # Max downslope gradient (Lambda_max, floored at 1e-4)
-        slope_max = ti.cast(1e-4, ti.f32)
-        for k in ti.static(range(8)):
-            if flow_frac[i, j, k] > 0.0:
-                di, dj = ti.static(OFFSETS[k])
-                dist = ti.static(DIAG[k]) * dx
-                ni, nj = i + di, j + dj
-                slope_k = (z[i, j] - z[ni, nj]) / dist
-                slope_max = ti.max(slope_max, slope_k)
+        slope_max = max_downslope(z, flow_frac, i, j, dx)
 
         # Picard iteration: q -> h -> I -> Q_out (5 local iterations)
         v = V[i, j]

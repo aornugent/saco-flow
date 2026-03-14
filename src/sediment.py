@@ -8,7 +8,7 @@ from sediment flux divergence (S_0 - S) / dx.
 
 import taichi as ti
 
-from src.stencil import DIAG, OFFSETS, OPP
+from src.stencil import gather_flux, max_downslope
 
 
 @ti.func
@@ -95,23 +95,10 @@ def sediment_transport(
             continue
 
         # Gather incoming sediment from upslope
-        S_0 = ti.cast(0.0, ti.f32)
-        for k in ti.static(range(8)):
-            di, dj = ti.static(OFFSETS[k])
-            ni, nj = i + di, j + dj
-            if mask[ni, nj] == 1:
-                opp = ti.static(OPP[k])
-                S_0 += flow_frac[ni, nj, opp] * S[ni, nj]
+        S_0 = gather_flux(S, flow_frac, mask, i, j)
 
         # Max downslope gradient
-        slope_max = ti.cast(1e-4, ti.f32)
-        for k in ti.static(range(8)):
-            if flow_frac[i, j, k] > 0.0:
-                di, dj = ti.static(OFFSETS[k])
-                dist = ti.static(DIAG[k]) * dx
-                ni, nj = i + di, j + dj
-                slope_k = (z[i, j] - z[ni, nj]) / dist
-                slope_max = ti.max(slope_max, slope_k)
+        slope_max = max_downslope(z, flow_frac, i, j, dx)
 
         # Unit-width discharge [m^2/yr] — paper's Q convention
         q = Q[i, j] / dx
@@ -161,12 +148,6 @@ def update_elevation(
             continue
 
         # Gather incoming sediment S_0 from pre-transport flux
-        S_0 = ti.cast(0.0, ti.f32)
-        for k in ti.static(range(8)):
-            di, dj = ti.static(OFFSETS[k])
-            ni, nj = i + di, j + dj
-            if mask[ni, nj] == 1:
-                opp = ti.static(OPP[k])
-                S_0 += flow_frac[ni, nj, opp] * S[ni, nj]
+        S_0 = gather_flux(S, flow_frac, mask, i, j)
 
         z[i, j] += (S_0 - S_new[i, j]) / dx
