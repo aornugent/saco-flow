@@ -5,9 +5,8 @@ GPU-accelerated ecohydrological simulation using Taichi.
 ## Commands
 
 ```bash
-uv sync && source .venv/bin/activate
-pytest
-ruff check --fix . && ruff format .
+uv sync && uv run pytest
+uv run ruff check --fix . && uv run ruff format .
 ```
 
 ## Taichi Rules
