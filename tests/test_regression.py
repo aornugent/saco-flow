@@ -31,7 +31,7 @@ VEG_THRESHOLD = 5.0  # [g/m²]
 # Flow routing
 P_MFD = 2.0  # MFD convergence exponent
 N_MANNING = 0.05  # Manning's roughness (nM, Table I)
-CN = 1.0  # kinematic wave constant
+CN = 100  # kinematic wave constant
 
 # Infiltration
 ALPHA = 8.0  # [d⁻¹] (Table II)
