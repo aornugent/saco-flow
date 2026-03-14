@@ -19,7 +19,7 @@ class Params:
     # Flow routing (Table I)
     p: float = 2.0  # MFD convergence exponent [-]
     n_manning: float = 0.05  # Manning's roughness [s/m^(1/3)]
-    cn: float = 86400.0  # kinematic wave constant [m^(1/3)/s → 1/day via ×86400]
+    cn: float = 1.0  # kinematic wave constant (absorbed unit conversion)
 
     # Infiltration (Table I / Table II)
     alpha: float = 8.0  # infiltration capacity [d⁻¹]
