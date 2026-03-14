@@ -1,20 +1,11 @@
 """Daily/annual simulation orchestrator per Baartman et al. (2018) section 7."""
 
-import taichi as ti
-
 from src.fields import Fields
 from src.flow import accumulate_annual_Q, compute_flow_fractions, route_water
 from src.params import Params
 from src.sediment import sediment_transport, update_elevation
 from src.soil_moisture import soil_moisture_step
 from src.vegetation import vegetation_step
-
-
-@ti.kernel
-def _scale_field(f: ti.template(), s: ti.f32):
-    """Multiply every element of a 2-D field by scalar s (in-place, point-wise)."""
-    for i, j in f:
-        f[i, j] *= s
 
 
 def step_day(
@@ -40,7 +31,6 @@ def step_day(
             fields.Q_daily,
             fields.R,
             fields.I_inf,
-            fields.h,
             fields.z,
             fields.V,
             fields.flow_frac,
@@ -54,14 +44,11 @@ def step_day(
         )
         fields.swap("Q_out")
 
-    # Interface: flow routing produces I_inf in m/day;
-    # soil moisture / vegetation subsystem works in mm (paper units).
-    _scale_field(fields.I_inf, 1000.0)
-
     # section 3: Soil moisture (no lateral diffusion per paper)
+    # I_inf is already in mm/day — no conversion needed.
+    # Point-wise: updated in-place, no buffer swap.
     soil_moisture_step(
         fields.M,
-        fields.M_new,
         fields.I_inf,
         fields.V,
         fields.mask,
@@ -70,7 +57,6 @@ def step_day(
         params.rw,
         dt,
     )
-    fields.swap("M")
 
     # section 4: Vegetation
     vegetation_step(
@@ -104,13 +90,14 @@ def step_year(
     """Run one year: daily steps + annual sediment/elevation update.
 
     The number of daily steps equals len(rain) when rain is supplied, or 365
-    when rain is None (fields.R must be preset in that case).
+    when rain is None (fields.R must be preset in mm/day in that case).
 
     Args:
         fields: Simulation fields (flow_frac must be precomputed)
         params: Physical constants
         rain: Daily rainfall array [m/day]. Length determines days per year.
-              If None, fields.R must be preset and 365 steps are run.
+              Converted to mm/day internally.
+              If None, fields.R must be preset in mm/day and 365 steps are run.
         dt: Daily timestep [days]
         n_picard: Global Picard iterations for water routing
     """
@@ -120,7 +107,7 @@ def step_year(
     fields.Q_annual.fill(0.0)
     for day in range(days):
         if rain is not None:
-            fields.R.fill(rain[day])
+            fields.R.fill(float(rain[day]) * 1000.0)  # m/day -> mm/day
         step_day(fields, params, dt=dt, n_picard=n_picard)
         accumulate_annual_Q(fields.Q_annual, fields.Q_daily, fields.mask)
 

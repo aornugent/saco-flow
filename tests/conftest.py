@@ -18,18 +18,21 @@ def taichi_init():
 @pytest.fixture
 def grid():
     """Factory: allocate fields with boundary mask (edges=0, interior=1)."""
+
     def _make(n):
         fields = allocate(n)
         mask = np.ones((n, n), dtype=np.int32)
         mask[0, :] = mask[-1, :] = mask[:, 0] = mask[:, -1] = 0
         fields.mask.from_numpy(mask)
         return fields
+
     return _make
 
 
 @pytest.fixture
 def slope_grid(grid):
     """Factory: allocate fields with linear slope and precomputed flow fractions."""
+
     def _make(n, dx=1.0, p=1.0, step=1.0):
         fields = grid(n)
         z = np.zeros((n, n), dtype=np.float32)
@@ -38,4 +41,5 @@ def slope_grid(grid):
         fields.z.from_numpy(z)
         compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, p)
         return fields
+
     return _make

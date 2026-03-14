@@ -5,11 +5,13 @@ Multiple-flow direction (MFD) algorithm distributes outflow proportionally
 to downslope gradients raised to exponent p.  Water routing gathers incoming
 flow from upslope neighbors using previous-timestep Q_out (explicit).
 Picard iteration resolves the q-h-I-Q_out coupling within each cell.
+
+All discharge fields are unit-width, mm-based [mm*m/day].
 """
 
 import taichi as ti
 
-from src.stencil import DIAG, OFFSETS, OPP, gather_flux, max_downslope
+from src.stencil import DIAG, OFFSETS, gather_flux, max_downslope
 
 
 @ti.kernel
@@ -21,8 +23,8 @@ def accumulate_annual_Q(
     """Add daily cell-average discharge into annual accumulator.
 
     Args:
-        Q_annual: Running annual total (read/write) [m^3/yr]
-        Q_daily: Daily cell-average discharge [m^3/day]
+        Q_annual: Running annual total (read/write) [mm*m/yr]
+        Q_daily: Daily cell-average discharge [mm*m/day]
         mask: Active cell mask
     """
     n = Q_annual.shape[0]
@@ -84,7 +86,6 @@ def route_water(
     Q_daily: ti.template(),
     R: ti.template(),
     I_inf: ti.template(),
-    h: ti.template(),
     z: ti.template(),
     V: ti.template(),
     flow_frac: ti.template(),
@@ -98,40 +99,39 @@ def route_water(
 ):
     """Gather-based water routing with Picard iteration for q-h-I-Q_out.
 
+    All discharge quantities are unit-width, mm-based [mm*m/day].
+
     1. Gather Q_in from upslope neighbors (previous-timestep Q_out)
-    2. Picard: q = (Q_in + Q_out) / (2*dx) [m^2/day]
-    3. h = (q * n_manning / (cn * sqrt(slope)))^(3/5)
-    4. I = alpha * h * (V + k2*W0) / (V + k2)
-    5. Q_out = max(0, Q_in + R*dx^2 - I*dx^2)
+    2. Picard: q = (Q_in + Q_out) / 2  [mm*m/day]
+    3. h = (q * 0.001 * n_manning / (cn * sqrt(slope)))^(3/5)
+    4. I = alpha * h * (V + k2*W0) / (V + k2) * 1000  [mm/day]
+    5. Q_out = max(0, Q_in + R*dx - I*dx)  [mm*m/day]
     6. Q_daily = (Q_in + Q_out) / 2  (Eq 12)
-    7. Writes Q_out_new, Q_daily, h, I_inf
+    7. Writes Q_out_new, Q_daily, I_inf
 
     Args:
-        Q_out: Previous-timestep outgoing discharge (read) [m^3/day]
-        Q_out_new: Updated outgoing discharge (write) [m^3/day]
-        Q_daily: Cell-average discharge (write) [m^3/day]
-        R: Rainfall rate [m/day]
-        I_inf: Infiltration rate (write) [m/day]
-        h: Flow depth (write) [m]
+        Q_out: Previous-timestep outgoing discharge (read) [mm*m/day]
+        Q_out_new: Updated outgoing discharge (write) [mm*m/day]
+        Q_daily: Cell-average discharge (write) [mm*m/day]
+        R: Rainfall rate [mm/day]
+        I_inf: Infiltration rate (write) [mm/day]
         z: Elevation field [m]
-        V: Vegetation density [%]
+        V: Vegetation density [g/m^2]
         flow_frac: MFD fractions (n, n, 8)
         mask: Active cell mask
         dx: Cell spacing [m]
         n_manning: Manning's roughness coefficient [s/m^(1/3)]
         cn: Constant for kinematic wave [m^(1/3)/s]
         alpha: Infiltration capacity [1/day]
-        k2: Vegetation half-saturation for infiltration [%]
+        k2: Vegetation half-saturation for infiltration [g/m^2]
         W0: Bare-soil infiltration fraction [-]
     """
     n = Q_out.shape[0]
-    cell_area = dx * dx
 
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
         if mask[i, j] == 0:
             Q_out_new[i, j] = 0.0
             Q_daily[i, j] = 0.0
-            h[i, j] = 0.0
             I_inf[i, j] = 0.0
             continue
 
@@ -144,37 +144,26 @@ def route_water(
         # Picard iteration: q -> h -> I -> Q_out (5 local iterations)
         v = V[i, j]
         Q_o = Q_out[i, j]  # initial guess from previous global pass
-        h_val = ti.cast(0.0, ti.f32)
         I_val = ti.cast(0.0, ti.f32)
 
         for _ in ti.static(range(5)):
-            # §2: q = (Q_in + Q_out) / (2*dx)  [m^2/day]
-            q = (Q_in + Q_o) / (2.0 * dx)
-            # h = (q * n_manning / (cn * sqrt(slope_max)))^(3/5)
+            # Eq 12: q = (Q_in + Q_out) / 2  [mm*m/day]
+            q = (Q_in + Q_o) / 2.0
+            # h = (q_m2 * n_manning / (cn * sqrt(slope_max)))^(3/5)
+            # q_m2 = q * 0.001 converts mm*m/day -> m^2/day
+            h_val = ti.cast(0.0, ti.f32)
             if q > 0.0 and cn > 0.0:
                 h_val = ti.pow(
-                    q * n_manning / (cn * ti.sqrt(slope_max)),
+                    q * 0.001 * n_manning / (cn * ti.sqrt(slope_max)),
                     0.6,
                 )
-            else:
-                h_val = 0.0
-            # I = alpha * h * (V + k2*W0) / (V + k2)
-            I_val = alpha * h_val * (v + k2 * W0) / (v + k2)
-            # Q_out = max(0, Q_in + R*dx^2 - I*dx^2)
-            Q_o = ti.max(0.0, Q_in + R[i, j] * cell_area - I_val * cell_area)
-
-        # Final consistent recompute from converged Q_o
-        q = (Q_in + Q_o) / (2.0 * dx)
-        if q > 0.0 and cn > 0.0:
-            h_val = ti.pow(
-                q * n_manning / (cn * ti.sqrt(slope_max)),
-                0.6,
-            )
-        else:
-            h_val = 0.0
+            # I = alpha * h * (V + k2*W0) / (V + k2) * 1000  [mm/day]
+            # alpha*h gives m/day; *1000 converts to mm/day
+            I_val = alpha * h_val * (v + k2 * W0) / (v + k2) * 1000.0
+            # Q_out = max(0, Q_in + R*dx - I*dx)  [mm*m/day]
+            Q_o = ti.max(0.0, Q_in + R[i, j] * dx - I_val * dx)
 
         Q_out_new[i, j] = Q_o
         Q_daily[i, j] = (Q_in + Q_o) / 2.0  # Eq 12
-        h[i, j] = h_val
         # Actual infiltration from mass balance (clamped Q_o respects water availability)
-        I_inf[i, j] = (Q_in + R[i, j] * cell_area - Q_o) / cell_area
+        I_inf[i, j] = (Q_in + R[i, j] * dx - Q_o) / dx

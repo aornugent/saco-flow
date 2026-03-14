@@ -33,23 +33,23 @@ def vegetation_step(
     D_flow = seed_in - seed_out  (net flow-directed dispersal)
     Q_seed = min(c1 * q * V, c2 * V)
 
-    Unit discharge q is converted to [mm*m/day] to match the paper,
-    so Table I/II parameter values can be used directly.
+    Q_daily is already unit-width [mm*m/day], matching the paper's
+    convention so Table I/II parameter values work directly.
 
     Args:
-        V: Vegetation density read [%]
-        V_new: Vegetation density write [%]
-        M: Soil moisture [m]
-        Q_daily: Cell-average discharge (Q_in+Q_out)/2 [m^3/day]
+        V: Vegetation density read [g/m^2]
+        V_new: Vegetation density write [g/m^2]
+        M: Soil moisture [mm]
+        Q_daily: Cell-average discharge (Q_in+Q_out)/2 [mm*m/day]
         flow_frac: MFD flow fractions (n, n, 8)
         mask: Active cell mask
         c: Growth scaling factor [-]
-        g_max: Maximum growth rate [1/day]
-        k1: Half-saturation for moisture [m]
+        g_max: Maximum growth rate [mm*m^2/(g*day)]
+        k1: Half-saturation for moisture [mm]
         d: Mortality rate [1/day]
         Dp: Isotropic seed diffusion coefficient [m^2/day]
         dx: Cell spacing [m]
-        c1: Flow dispersal coefficient [day/(mm*m)]
+        c1: Flow dispersal coefficient [1/(mm*m)]
         c2: Flow dispersal saturation [1/day]
         dt: Timestep [days]
     """
@@ -78,7 +78,7 @@ def vegetation_step(
                 laplacian += V[ni, nj] - v
 
         # Flow-directed seed dispersal: D_flow = seed_in - seed_out
-        # Gather seed_in from upslope neighbors
+        # Q_daily is already unit-width [mm*m/day] — no conversion needed
         seed_in = ti.cast(0.0, ti.f32)
         for k in ti.static(range(8)):
             di, dj = ti.static(OFFSETS[k])
@@ -87,12 +87,12 @@ def vegetation_step(
                 opp = ti.static(OPP[k])
                 frac = flow_frac[ni, nj, opp]
                 if frac > 0.0:
-                    q_per_w = Q_daily[ni, nj] / dx * 1000.0  # [mm*m/day]
+                    q_per_w = Q_daily[ni, nj]  # [mm*m/day]
                     q_seed = ti.min(c1 * q_per_w * V[ni, nj], c2 * V[ni, nj])
                     seed_in += frac * q_seed
 
         # Seed_out from this cell: Q_seed = min(c1 * q * V, c2 * V)
-        q_self = Q_daily[i, j] / dx * 1000.0  # [mm*m/day]
+        q_self = Q_daily[i, j]  # [mm*m/day]
         seed_out = ti.min(c1 * q_self * v, c2 * v)
 
         d_flow = seed_in - seed_out

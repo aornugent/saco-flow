@@ -25,7 +25,7 @@ YEARS = 60
 SEED = 42
 VEG_THRESHOLD = 5.0  # [g/m²]
 
-# Default Params() encodes Table I / Table II values (dx=5 m, cn=86400).
+# Default Params() encodes Table I / Table II values (dx=5 m).
 PARAMS = Params()
 
 

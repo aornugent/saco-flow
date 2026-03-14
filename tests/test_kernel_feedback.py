@@ -9,7 +9,7 @@ import pytest
 
 from src.flow import route_water
 from src.params import Params
-from src.simulate import _scale_field, step_year
+from src.simulate import step_year
 from src.soil_moisture import soil_moisture_step
 
 # Shared params for feedback tests (paper Table I/II values, dx=5 m).
@@ -17,7 +17,10 @@ _PARAMS = Params()
 
 
 def _make_rain(days, n_wet=70, mean_depth=0.00417):
-    """Generate exponentially distributed rain on n_wet random days."""
+    """Generate exponentially distributed rain on n_wet random days.
+
+    Returns rain in m/day (converted to mm/day inside step_year).
+    """
     rng = np.random.default_rng(42)
     rain = np.zeros(days, dtype=np.float32)
     wet_days = rng.choice(days, n_wet, replace=False)
@@ -32,9 +35,9 @@ def test_positive_feedback_vegetation_sustains(slope_grid):
     Two runs, 5 years. Run A: V=0 (bare). Run B: V=5 (vegetated).
     With rainfall, Run B's vegetation should persist (growth > mortality
     because infiltration feedback provides soil moisture for growth).
-    Run A starts bare and should have V ≈ 0 throughout (no seeds).
+    Run A starts bare and should have V ~ 0 throughout (no seeds).
 
-    This demonstrates the positive feedback: V → enhanced I → more M → more growth.
+    This demonstrates the positive feedback: V -> enhanced I -> more M -> more growth.
     """
     n = 16
     params = _PARAMS
@@ -65,7 +68,7 @@ def test_positive_feedback_vegetation_sustains(slope_grid):
 def test_negative_feedback_vegetation_depletes_moisture(slope_grid):
     """10.2: Dense vegetation depletes soil moisture locally.
 
-    16×16 grid, 3 years. High V=50 in one quadrant, V=0 elsewhere.
+    16x16 grid, 3 years. High V=50 in one quadrant, V=0 elsewhere.
     After 3 years: M in vegetated quadrant < M in bare quadrant.
     """
     n = 16
@@ -99,9 +102,11 @@ def _run_hydrology_only(fields, n_days, rain_depth, params: Params):
 
     Uses g_max=0 so the soil moisture equation becomes dM/dt = I_inf - rw*M,
     isolating the infiltration signal from vegetation uptake.
+
+    rain_depth is in m/day; converted to mm/day for R field.
     """
     for _ in range(n_days):
-        fields.R.fill(rain_depth)
+        fields.R.fill(float(rain_depth) * 1000.0)  # m/day -> mm/day
 
         for _ in range(20):
             route_water(
@@ -110,7 +115,6 @@ def _run_hydrology_only(fields, n_days, rain_depth, params: Params):
                 fields.Q_daily,
                 fields.R,
                 fields.I_inf,
-                fields.h,
                 fields.z,
                 fields.V,
                 fields.flow_frac,
@@ -124,11 +128,9 @@ def _run_hydrology_only(fields, n_days, rain_depth, params: Params):
             )
             fields.swap("Q_out")
 
-        _scale_field(fields.I_inf, 1000.0)
-
+        # I_inf is already in mm/day — no scaling needed
         soil_moisture_step(
             fields.M,
-            fields.M_new,
             fields.I_inf,
             fields.V,
             fields.mask,
@@ -137,18 +139,17 @@ def _run_hydrology_only(fields, n_days, rain_depth, params: Params):
             params.rw,
             1.0,
         )
-        fields.swap("M")
 
 
 def test_runoff_runon_moisture_gradient(slope_grid):
-    """10.3: Vegetation enhances infiltration → higher soil moisture.
+    """10.3: Vegetation enhances infiltration -> higher soil moisture.
 
-    Two identical 16×16 slopes, 60 days of constant rainfall.
+    Two identical 16x16 slopes, 60 days of constant rainfall.
     Run A: V=0 (bare).  Run B: V=20 (vegetated).
     No vegetation dynamics (g_max=0), so M reflects only the
-    infiltration gradient: I = α·h·(V + k₂·W₀)/(V + k₂).
+    infiltration gradient: I = alpha*h*(V + k2*W0)/(V + k2).
 
-    Vegetated cells have ~11× higher infiltration capacity
+    Vegetated cells have ~11x higher infiltration capacity
     (factor 0.55 vs 0.05), so more rainfall and runoff is captured
     before it exits the domain.  Mean M should be higher.
 
@@ -178,7 +179,7 @@ def test_runoff_runon_moisture_gradient(slope_grid):
 def test_pattern_instability(slope_grid):
     """10.4: Uniform state is unstable — perturbation grows.
 
-    32×32 grid, uniform V=10 ± 0.1, 5 years.
+    32x32 grid, uniform V=10 +/- 0.1, 5 years.
     std(V) should increase (pattern emerges from instability).
     """
     n = 32
