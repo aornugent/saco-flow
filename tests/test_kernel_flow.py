@@ -9,18 +9,8 @@ import math
 import numpy as np
 import pytest
 
-from src.fields import allocate
 from src.flow import compute_flow_fractions, route_water
 from src.stencil import DIAG, OFFSETS, OPP
-
-
-def _setup_grid(n):
-    """Allocate fields with boundary mask (edges = 0, interior = 1)."""
-    fields = allocate(n)
-    mask = np.ones((n, n), dtype=np.int32)
-    mask[0, :] = mask[-1, :] = mask[:, 0] = mask[:, -1] = 0
-    fields.mask.from_numpy(mask)
-    return fields
 
 
 def _reconstruct_Q_in(Q_out, flow_frac, mask):
@@ -43,10 +33,10 @@ def _reconstruct_Q_in(Q_out, flow_frac, mask):
 # ── Section 1: Flow Fractions ────────────────────────────────────────────────
 
 
-def test_flow_fractions_single_downslope():
+def test_flow_fractions_single_downslope(grid):
     """1.1: All flow to one cell when only one neighbor is downslope."""
     n = 5
-    fields = _setup_grid(n)
+    fields = grid(n)
     z = np.full((n, n), 10.0, dtype=np.float32)
     z[3, 2] = 5.0  # south of [2,2]
     fields.z.from_numpy(z)
@@ -61,10 +51,10 @@ def test_flow_fractions_single_downslope():
             assert abs(frac[2, 2, k]) < 1e-6
 
 
-def test_flow_fractions_two_equal_neighbors():
+def test_flow_fractions_two_equal_neighbors(grid):
     """1.2: Equal split with p=1.0 for two identical cardinal downslope."""
     n = 5
-    fields = _setup_grid(n)
+    fields = grid(n)
     z = np.full((n, n), 10.0, dtype=np.float32)
     z[3, 2] = 8.0  # south (cardinal, dist=dx)
     z[2, 3] = 8.0  # east  (cardinal, dist=dx)
@@ -77,10 +67,10 @@ def test_flow_fractions_two_equal_neighbors():
     assert abs(frac[2, 2, 4] - 0.5) < 1e-6  # east
 
 
-def test_flow_fractions_cardinal_vs_diagonal():
+def test_flow_fractions_cardinal_vs_diagonal(grid):
     """1.3: Distance weighting differentiates cardinal from diagonal (p=1)."""
     n = 5
-    fields = _setup_grid(n)
+    fields = grid(n)
     z = np.full((n, n), 10.0, dtype=np.float32)
     z[3, 2] = 9.0  # south (cardinal)
     z[3, 3] = 9.0  # SE    (diagonal)
@@ -99,10 +89,10 @@ def test_flow_fractions_cardinal_vs_diagonal():
     assert abs(frac[2, 2, 7] - expected_se) < 1e-5
 
 
-def test_flow_fractions_exponent_amplifies():
+def test_flow_fractions_exponent_amplifies(grid):
     """1.4: Higher p amplifies steepest path — exact ratio check."""
     n = 5
-    fields = _setup_grid(n)
+    fields = grid(n)
     z = np.full((n, n), 10.0, dtype=np.float32)
     z[3, 2] = 9.0  # south
     z[3, 3] = 9.0  # SE
@@ -127,10 +117,10 @@ def test_flow_fractions_exponent_amplifies():
     assert abs(ratio - expected_ratio) < 0.01
 
 
-def test_flow_fractions_pit_cell():
+def test_flow_fractions_pit_cell(grid):
     """1.5: Pit cell (lower than all neighbors) — all fractions zero."""
     n = 5
-    fields = _setup_grid(n)
+    fields = grid(n)
     z = np.full((n, n), 10.0, dtype=np.float32)
     z[2, 2] = 5.0  # pit
     fields.z.from_numpy(z)
@@ -167,11 +157,11 @@ def _route_once(fields, dx, n_manning=0.03, cn=1.0, alpha=0.0, k2=5.0, W0=0.2):
     )
 
 
-def test_route_water_cell_balance():
+def test_route_water_cell_balance(grid):
     """2.1: Cell-level water balance — I_inf from mass balance ensures residual ≈ 0."""
     n = 8
     dx = 1.0
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     z = np.zeros((n, n), dtype=np.float32)
     for i in range(n):
@@ -214,7 +204,7 @@ def test_route_water_cell_balance():
                 assert I_inf[i, j] * cell_area <= Q_in[i, j] + R[i, j] * cell_area + 1e-10
 
 
-def test_route_water_zero_infiltration_analytical():
+def test_route_water_zero_infiltration_analytical(grid):
     """2.2: Single-cell analytical solution with alpha=0 (no infiltration).
 
     Q_in=0, R=0.01, alpha=0 → I=0.
@@ -222,7 +212,7 @@ def test_route_water_zero_infiltration_analytical():
     """
     n = 3
     dx = 1.0
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     z = np.array([[2, 2, 2], [2, 10, 2], [2, 9, 2]], dtype=np.float32)
     fields.z.from_numpy(z)
@@ -256,7 +246,7 @@ def test_route_water_zero_infiltration_analytical():
     )
 
 
-def test_route_water_picard_analytical():
+def test_route_water_picard_analytical(grid):
     """2.3: Single-cell Picard iteration matches Python reference computation.
 
     5×5 grid with slope=1/dx at center cell. R=0.01, V=10, alpha=1.0.
@@ -264,7 +254,7 @@ def test_route_water_picard_analytical():
     """
     n = 5
     dx = 1.0
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     z = np.full((n, n), 10.0, dtype=np.float32)
     for i in range(n):
@@ -326,14 +316,14 @@ def test_route_water_picard_analytical():
     assert abs(h[2, 2] - h_final) / max(h_final, 1e-10) < 1e-4
 
 
-def test_route_water_infiltration_bounded():
+def test_route_water_infiltration_bounded(grid):
     """2.4: Infiltration cannot exceed supply (very large alpha, tiny R).
 
     I_inf * dx² must not exceed Q_in + R * dx² (Bug 3 guard).
     """
     n = 3
     dx = 1.0
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     z = np.array([[2, 2, 2], [2, 10, 2], [2, 9, 2]], dtype=np.float32)
     fields.z.from_numpy(z)
@@ -357,11 +347,11 @@ def test_route_water_infiltration_bounded():
     )
 
 
-def test_route_water_global_conservation():
+def test_route_water_global_conservation(grid):
     """2.5: Global conservation — supply = infiltration + boundary outflow."""
     n = 16
     dx = 1.0
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     z = np.zeros((n, n), dtype=np.float32)
     for i in range(n):
@@ -400,11 +390,11 @@ def test_route_water_global_conservation():
     )
 
 
-def test_route_water_Q_daily_consistency():
+def test_route_water_Q_daily_consistency(grid):
     """2.6: Q_daily = (Q_in + Q_out) / 2 for every interior cell."""
     n = 16
     dx = 1.0
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     z = np.zeros((n, n), dtype=np.float32)
     for i in range(n):

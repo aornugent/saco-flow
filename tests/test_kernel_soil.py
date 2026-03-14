@@ -9,20 +9,10 @@ import math
 import numpy as np
 import pytest
 
-from src.fields import allocate
 from src.soil_moisture import soil_moisture_step
 
 
-def _setup_grid(n):
-    """Allocate fields with boundary mask."""
-    fields = allocate(n)
-    mask = np.ones((n, n), dtype=np.int32)
-    mask[0, :] = mask[-1, :] = mask[:, 0] = mask[:, -1] = 0
-    fields.mask.from_numpy(mask)
-    return fields
-
-
-def test_soil_moisture_exact_euler():
+def test_soil_moisture_exact_euler(grid):
     """3.1: Single-cell exact Euler step with known parameters.
 
     M=0.3, V=10, I_inf=0.5, g_max=0.05, k1=5.0, rw=0.19, dt=1.0.
@@ -31,7 +21,7 @@ def test_soil_moisture_exact_euler():
     M_new = 0.3 + 1.0 * (0.5 − 0.02830 − 0.057) = 0.7147
     """
     n = 3
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     fields.M.from_numpy(np.full((n, n), 0.3, dtype=np.float32))
     fields.V.from_numpy(np.full((n, n), 10.0, dtype=np.float32))
@@ -55,14 +45,14 @@ def test_soil_moisture_exact_euler():
     )
 
 
-def test_soil_moisture_zero_infiltration_decay():
+def test_soil_moisture_zero_infiltration_decay(grid):
     """3.2: Zero infiltration, known decay.
 
     M=1.0, V=0.0 (bare soil → uptake=0), I_inf=0, rw=0.19, dt=1.0.
     M_new = 1.0 − 0.19 = 0.81 (exact).
     """
     n = 3
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     fields.M.from_numpy(np.full((n, n), 1.0, dtype=np.float32))
     fields.V.from_numpy(np.zeros((n, n), dtype=np.float32))
@@ -77,7 +67,7 @@ def test_soil_moisture_zero_infiltration_decay():
     assert abs(M_new[1, 1] - 0.81) < 1e-6, f"M_new={M_new[1, 1]:.6f}, expected=0.81"
 
 
-def test_soil_moisture_steady_state():
+def test_soil_moisture_steady_state(grid):
     """3.3: Steady-state convergence.
 
     Constant I_inf=2.0, V=15.0, g_max=0.05, k1=5.0, rw=0.19, dt=1.0.
@@ -85,7 +75,7 @@ def test_soil_moisture_steady_state():
     Solve: M* ≈ 5.263 mm.
     """
     n = 3
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     V = 15.0
     I_inf = 2.0
@@ -129,14 +119,14 @@ def test_soil_moisture_steady_state():
     )
 
 
-def test_soil_moisture_mass_conservation():
+def test_soil_moisture_mass_conservation(grid):
     """3.4: Mass conservation over one step for every interior cell.
 
     |M_new − M − dt*(I_inf − uptake − loss)| < 1e-6
     unless clamp fires (M_new = 0 and M + dt*dMdt < 0).
     """
     n = 8
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     rng = np.random.default_rng(42)
     M0 = rng.uniform(0.0, 2.0, (n, n)).astype(np.float32)
@@ -179,14 +169,14 @@ def test_soil_moisture_mass_conservation():
                 )
 
 
-def test_soil_moisture_no_negative():
+def test_soil_moisture_no_negative(grid):
     """3.5: Clamp correctness — no negative moisture.
 
     M=0.001, V=100, I_inf=0, g_max=0.5, k1=0.1, rw=0.5, dt=1.0.
     Unclamped: 0.001 − 0.4955 = −0.4945 → clamped to 0.
     """
     n = 3
-    fields = _setup_grid(n)
+    fields = grid(n)
 
     fields.M.from_numpy(np.full((n, n), 0.001, dtype=np.float32))
     fields.V.from_numpy(np.full((n, n), 100.0, dtype=np.float32))
