@@ -15,51 +15,18 @@ import pytest
 
 from src.fields import allocate
 from src.flow import compute_flow_fractions
+from src.params import Params
 from src.simulate import step_year
 
 # -- Domain ------------------------------------------------------------------
 
 N = 200
-DX = 5.0  # [m]
 YEARS = 60
-DAYS_PER_YEAR = 365
 SEED = 42
 VEG_THRESHOLD = 5.0  # [g/m²]
 
-# -- Parameters (paper Table I / Table II) ------------------------------------
-
-# Flow routing
-P_MFD = 2.0  # MFD convergence exponent
-N_MANNING = 0.05  # Manning's roughness (nM, Table I)
-CN = 1.0  # kinematic wave constant
-
-# Infiltration
-ALPHA = 8.0  # [d⁻¹] (Table II)
-K2 = 18.0  # [g/m²] vegetation half-saturation for infiltration (Table I)
-W0 = 0.05  # [-] bare-soil infiltration fraction (Table I)
-
-# Soil moisture (paper units, mm-based — I_inf converted m→mm in step_day)
-G_MAX = 0.05  # [mm·m²/(g·d)] (Table I)
-K1 = 5.0  # [mm] (Table I)
-RW = 0.19  # [d⁻¹] (Table I)
-
-# Vegetation (paper units, mm-based)
-C_VEG = 10.0  # [g/(mm·m²)] (Table I)
-D_MORT = 0.13  # [d⁻¹] (Table II)
-DP = 0.0007  # [m²/d] (Table II)
-C1 = 0.005  # [mm⁻¹] (Table II) — code converts q to mm·m/day internally
-C2 = 0.0005  # [m/d] (Table II)
-
-# Sediment transport
-GAMMA = 1.0  # transport coefficient (LAPSUS default)
-M_EXP = 1.65  # discharge exponent (Table I, "m")
-N_EXP = 1.65  # slope exponent (Table I, "n")
-K_MAX = 0.05  # [m⁻¹] erosion coefficient, bare soil (Table I, "K")
-K_MIN = 0.05 * 0.001  # K × 0.001 (Section "Model coupling")
-P_MIN = 0.05  # [m⁻¹] deposition coefficient, bare soil (Table I, "P")
-P_MAX = 0.05 * 1000  # P × 1000 (Section "Model coupling")
-V_LOW = 5.0  # [g/m²] (Section "Model coupling")
-V_HIGH = 20.0  # [g/m²] (Section "Model coupling")
+# Default Params() encodes Table I / Table II values (dx=5 m, cn=86400).
+PARAMS = Params()
 
 
 # -- Helpers ------------------------------------------------------------------
@@ -73,10 +40,10 @@ def _generate_rainfall(seed: int) -> np.ndarray:
     Returns array of shape (60*365,) in m/day.
     """
     rng = np.random.default_rng(seed)
-    block = np.zeros(3 * DAYS_PER_YEAR, dtype=np.float32)
+    block = np.zeros(3 * 365, dtype=np.float32)
     for yr in range(3):
-        start = yr * DAYS_PER_YEAR
-        wet_days = rng.choice(DAYS_PER_YEAR, size=70, replace=False)
+        start = yr * 365
+        wet_days = rng.choice(365, size=70, replace=False)
         amounts_mm = rng.exponential(4.17, size=70).astype(np.float32)
         for d, amt in zip(wet_days, amounts_mm, strict=True):
             block[start + d] = amt / 1000.0  # mm → m
@@ -114,7 +81,7 @@ def _setup_domain():
     # S = 0, Q_out = 0 (zero-initialized by allocate)
 
     # Precompute flow fractions
-    compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, DX, P_MFD)
+    compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, PARAMS.dx, PARAMS.p)
 
     return fields
 
@@ -133,38 +100,6 @@ def _count_bands(V: np.ndarray, mask: np.ndarray, j: int = 100) -> int:
     return count
 
 
-# -- Yearly kwargs for step_year ----------------------------------------------
-
-_YEARLY = {
-    "dx": DX,
-    "p": P_MFD,
-    "n_manning": N_MANNING,
-    "cn": CN,
-    "alpha": ALPHA,
-    "k2": K2,
-    "W0": W0,
-    "g_max": G_MAX,
-    "k1": K1,
-    "rw": RW,
-    "c": C_VEG,
-    "d": D_MORT,
-    "Dp": DP,
-    "c1": C1,
-    "c2": C2,
-    "gamma": GAMMA,
-    "m_exp": M_EXP,
-    "n_exp": N_EXP,
-    "K_max": K_MAX,
-    "K_min": K_MIN,
-    "P_min": P_MIN,
-    "P_max": P_MAX,
-    "v_low": V_LOW,
-    "v_high": V_HIGH,
-    "dt": 1.0,
-    "n_picard": 20,
-}
-
-
 # -- Test ---------------------------------------------------------------------
 
 
@@ -181,8 +116,7 @@ def test_banded_vegetation_60yr():
     rain = _generate_rainfall(SEED)
 
     for yr in range(YEARS):
-        rain_yr = rain[yr * DAYS_PER_YEAR : (yr + 1) * DAYS_PER_YEAR]
-        step_year(fields, rain=rain_yr, **_YEARLY)
+        step_year(fields, PARAMS, rain=rain[yr * 365 : (yr + 1) * 365])
 
     # -- Metrics at t = 60 yr, interior cells only --
     V = fields.V.to_numpy()
