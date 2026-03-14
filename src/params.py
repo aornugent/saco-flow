@@ -19,7 +19,7 @@ class Params:
     # Flow routing (Table I)
     p: float = 2.0  # MFD convergence exponent [-]
     n_manning: float = 0.05  # Manning's roughness [s/m^(1/3)]
-    cn: float = 1.0  # kinematic wave constant (absorbed unit conversion)
+    cn: float = 86400.0  # kinematic wave constant [m^(2/3) mm d⁻¹]
 
     # Infiltration (Table I / Table II)
     alpha: float = 8.0  # infiltration capacity [d⁻¹]
@@ -36,7 +36,7 @@ class Params:
     d: float = 0.13  # mortality rate [d⁻¹]
     Dp: float = 0.0007  # isotropic seed diffusion [m²/d]
     c1: float = 0.005  # flow dispersal coefficient [mm⁻¹]
-    c2: float = 0.0005  # flow dispersal saturation [1/d]
+    c2: float = 0.0005  # flow dispersal saturation [m/d]
 
     # Sediment transport (Table I + "Model coupling" section)
     gamma: float = 1.0  # transport coefficient [-]
