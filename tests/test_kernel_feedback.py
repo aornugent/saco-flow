@@ -111,7 +111,7 @@ def test_negative_feedback_vegetation_depletes_moisture(slope_grid):
     days_per_year = 60
     rain = _make_rain(days_per_year, n_wet=20)
 
-    fields = slope(n, dx)
+    fields = slope_grid(n, dx)
 
     V_init = np.zeros((n, n), dtype=np.float32)
     V_init[1 : n // 2, 1 : n // 2] = 50.0  # upper-left quadrant
@@ -232,7 +232,7 @@ def test_pattern_instability(slope_grid):
     days_per_year = 60
     rain = _make_rain(days_per_year, n_wet=20)
 
-    fields = slope(n, dx)
+    fields = slope_grid(n, dx)
 
     rng = np.random.default_rng(42)
     V_init = (10.0 + rng.uniform(-0.1, 0.1, (n, n))).astype(np.float32)
