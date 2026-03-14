@@ -16,6 +16,7 @@ def vegetation_step(
     V_new: ti.template(),
     M: ti.template(),
     Q_daily: ti.template(),
+    Q_annual: ti.template(),
     flow_frac: ti.template(),
     mask: ti.template(),
     c: ti.f32,
@@ -30,6 +31,8 @@ def vegetation_step(
 ):
     """Update vegetation density: growth + mortality + seed dispersal.
 
+    Also accumulates Q_daily into Q_annual (avoids a separate kernel launch).
+
     D_flow = seed_in - seed_out  (net flow-directed dispersal)
     Q_seed = min(c1 * q * V, c2 * V)
 
@@ -41,6 +44,7 @@ def vegetation_step(
         V_new: Vegetation density write [g/m^2]
         M: Soil moisture [mm]
         Q_daily: Cell-average discharge (Q_in+Q_out)/2 [mm*m/day]
+        Q_annual: Running annual discharge accumulator [mm*m/yr]
         flow_frac: MFD flow fractions (n, n, 8)
         mask: Active cell mask
         c: Growth scaling factor [-]
@@ -101,3 +105,6 @@ def vegetation_step(
             0.0,
             v + dt * (growth - mortality + d_flow / dx) + coeff_iso * laplacian,
         )
+
+        # Accumulate daily discharge into annual total (point-wise, no extra kernel)
+        Q_annual[i, j] += Q_daily[i, j]
