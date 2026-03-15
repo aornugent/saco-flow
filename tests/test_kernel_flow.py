@@ -1,7 +1,7 @@
 """Physical consistency tests for flow fractions and water routing.
 
 Sections 1-2 of the test plan: exact values, conservation, and analytical
-solutions for compute_flow_fractions and route_water.
+solutions for compute_flow_fractions and route_wavefront.
 
 All discharge quantities are unit-width, mm-based [mm*m/day].
 R and I_inf are in [mm/day].
@@ -11,7 +11,7 @@ import math
 
 import numpy as np
 
-from src.flow import compute_flow_fractions, route_water
+from src.flow import compute_flow_fractions, prepare_levels, route_wavefront
 from src.stencil import DIAG, OFFSETS, OPP
 
 
@@ -137,25 +137,30 @@ def test_flow_fractions_pit_cell(grid):
 # ── Section 2: Water Routing ─────────────────────────────────────────────────
 
 
-def _route_once(fields, dx, n_manning=0.03, cn=1.0, alpha=0.0, k2=5.0, W0=0.2):
-    """Call route_water once (single global Picard sweep)."""
-    route_water(
-        fields.Q_out,
-        fields.Q_out_new,
-        fields.Q_daily,
-        fields.R,
-        fields.I_inf,
-        fields.z,
-        fields.V,
-        fields.flow_frac,
-        fields.mask,
-        dx,
-        n_manning,
-        cn,
-        alpha,
-        k2,
-        W0,
-    )
+def _route_sweep(fields, dx, n_manning=0.03, cn=1.0, alpha=0.0, k2=5.0, W0=0.2):
+    """Run one full wavefront routing sweep (all levels)."""
+    for L in range(fields.max_level + 1):
+        begin = fields.level_start[L]
+        end = fields.level_start[L + 1]
+        route_wavefront(
+            fields.sorted_idx,
+            begin,
+            end,
+            fields.Q_out,
+            fields.Q_daily,
+            fields.R,
+            fields.I_inf,
+            fields.z,
+            fields.V,
+            fields.flow_frac,
+            fields.mask,
+            dx,
+            n_manning,
+            cn,
+            alpha,
+            k2,
+            W0,
+        )
 
 
 def test_route_water_cell_balance(grid):
@@ -175,11 +180,9 @@ def test_route_water_cell_balance(grid):
     fields.V.from_numpy(np.full((n, n), 5.0, dtype=np.float32))
 
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, 1.0)
+    prepare_levels(fields)
 
-    # 20 global Picard sweeps
-    for _ in range(20):
-        _route_once(fields, dx, alpha=0.5, k2=5.0, W0=0.2)
-        fields.swap("Q_out")
+    _route_sweep(fields, dx, alpha=0.5, k2=5.0, W0=0.2)
 
     Q_out = fields.Q_out.to_numpy()
     I_inf = fields.I_inf.to_numpy()
@@ -221,11 +224,11 @@ def test_route_water_zero_infiltration_analytical(grid):
     fields.V.from_numpy(np.full((n, n), 10.0, dtype=np.float32))
 
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, 1.0)
+    prepare_levels(fields)
 
-    # Single route_water call
-    _route_once(fields, dx, alpha=0.0)
+    _route_sweep(fields, dx, alpha=0.0)
 
-    Q_out_new = fields.Q_out_new.to_numpy()
+    Q_out = fields.Q_out.to_numpy()
     Q_daily = fields.Q_daily.to_numpy()
     I_inf = fields.I_inf.to_numpy()
 
@@ -233,8 +236,8 @@ def test_route_water_zero_infiltration_analytical(grid):
     expected_Q_daily = R_mm * dx / 2  # 5 mm*m/day
     expected_I_inf = 0.0
 
-    assert abs(Q_out_new[1, 1] - expected_Q_out) < 1e-4, (
-        f"Q_out: {Q_out_new[1, 1]} != {expected_Q_out}"
+    assert abs(Q_out[1, 1] - expected_Q_out) < 1e-4, (
+        f"Q_out: {Q_out[1, 1]} != {expected_Q_out}"
     )
     assert abs(Q_daily[1, 1] - expected_Q_daily) < 1e-4, (
         f"Q_daily: {Q_daily[1, 1]} != {expected_Q_daily}"
@@ -245,10 +248,10 @@ def test_route_water_zero_infiltration_analytical(grid):
 
 
 def test_route_water_picard_analytical(grid):
-    """2.3: Single-cell Picard iteration matches Python reference computation.
+    """2.3: Ridgetop Picard iteration matches Python reference computation.
 
-    5x5 grid with slope=1/dx at center cell. R=10 mm/day, V=10, alpha=1.0.
-    Run single route_water call (5 internal Picard iterations).
+    5x5 grid with slope=1/dx.  Cell [1,2] is a ridgetop (Q_in=0).
+    R=10 mm/day, V=10, alpha=1.0.  One wavefront sweep, 5 local Picard.
     """
     n = 5
     dx = 1.0
@@ -265,11 +268,12 @@ def test_route_water_picard_analytical(grid):
     fields.V.from_numpy(np.full((n, n), 10.0, dtype=np.float32))
 
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, 1.0)
+    prepare_levels(fields)
 
-    _route_once(fields, dx, n_manning=0.03, cn=1.0, alpha=1.0, k2=5.0, W0=0.2)
+    _route_sweep(fields, dx, n_manning=0.03, cn=1.0, alpha=1.0, k2=5.0, W0=0.2)
 
-    # Python reference: compute Picard iteration for cell [2,2]
-    # Q_in = 0 (first call, all Q_out start at 0)
+    # Python reference: Picard iteration for ridgetop cell [1,2]
+    # Q_in = 0 (only upslope is boundary row 0)
     Q_in = 0.0
     V = 10.0
     alpha = 1.0
@@ -278,11 +282,13 @@ def test_route_water_picard_analytical(grid):
     n_manning = 0.03
     cn = 1.0
 
-    # slope_max at [2,2]: south neighbor [3,2] z=1, slope=(2-1)/dx=1.0
+    # slope_max at [1,2]: south neighbor [2,2] z=2, slope=(3-2)/dx=1.0
     slope_max = 1.0
 
-    Q_o = 0.0  # initial guess
+    Q_o = Q_in  # initial guess
+    Q_o_prev = Q_o
     for _ in range(5):
+        Q_o_prev = Q_o
         q = (Q_in + Q_o) / 2.0  # mm*m/day
         q_m2 = q * 0.001  # m^2/day
         if q_m2 > 0.0 and cn > 0.0:
@@ -291,18 +297,19 @@ def test_route_water_picard_analytical(grid):
             h_val = 0.0
         I_val = alpha * h_val * (V + k2 * W0) / (V + k2) * 1000.0  # mm/day
         Q_o = max(0.0, Q_in + R_mm * dx - I_val * dx)
+    Q_o = (Q_o + Q_o_prev) / 2.0
 
     expected_Q_out = Q_o
     expected_Q_daily = (Q_in + Q_o) / 2.0
     expected_I_inf = (Q_in + R_mm * dx - Q_o) / dx
 
-    Q_out_new = fields.Q_out_new.to_numpy()
+    Q_out = fields.Q_out.to_numpy()
     Q_daily = fields.Q_daily.to_numpy()
     I_inf = fields.I_inf.to_numpy()
 
-    assert abs(Q_out_new[2, 2] - expected_Q_out) / max(expected_Q_out, 1e-10) < 1e-4
-    assert abs(Q_daily[2, 2] - expected_Q_daily) / max(expected_Q_daily, 1e-10) < 1e-4
-    assert abs(I_inf[2, 2] - expected_I_inf) / max(expected_I_inf, 1e-10) < 1e-4
+    assert abs(Q_out[1, 2] - expected_Q_out) / max(expected_Q_out, 1e-10) < 1e-4
+    assert abs(Q_daily[1, 2] - expected_Q_daily) / max(expected_Q_daily, 1e-10) < 1e-4
+    assert abs(I_inf[1, 2] - expected_I_inf) / max(expected_I_inf, 1e-10) < 1e-4
 
 
 def test_route_water_infiltration_bounded(grid):
@@ -323,8 +330,9 @@ def test_route_water_infiltration_bounded(grid):
     fields.V.from_numpy(np.zeros((n, n), dtype=np.float32))  # bare soil
 
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, 1.0)
+    prepare_levels(fields)
 
-    _route_once(fields, dx, alpha=100.0, k2=5.0, W0=0.2)
+    _route_sweep(fields, dx, alpha=100.0, k2=5.0, W0=0.2)
 
     I_inf = fields.I_inf.to_numpy()
 
@@ -352,10 +360,9 @@ def test_route_water_global_conservation(grid):
     fields.V.from_numpy(np.full((n, n), 5.0, dtype=np.float32))
 
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, 1.0)
+    prepare_levels(fields)
 
-    for _ in range(20):
-        _route_once(fields, dx, alpha=0.5, k2=5.0, W0=0.2)
-        fields.swap("Q_out")
+    _route_sweep(fields, dx, alpha=0.5, k2=5.0, W0=0.2)
 
     Q_out = fields.Q_out.to_numpy()
     I_inf = fields.I_inf.to_numpy()
@@ -394,10 +401,9 @@ def test_route_water_Q_daily_consistency(grid):
     fields.V.from_numpy(np.full((n, n), 5.0, dtype=np.float32))
 
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, 1.0)
+    prepare_levels(fields)
 
-    for _ in range(20):
-        _route_once(fields, dx, alpha=0.5, k2=5.0, W0=0.2)
-        fields.swap("Q_out")
+    _route_sweep(fields, dx, alpha=0.5, k2=5.0, W0=0.2)
 
     Q_out = fields.Q_out.to_numpy()
     Q_daily = fields.Q_daily.to_numpy()

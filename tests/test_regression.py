@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from src.fields import allocate
-from src.flow import compute_flow_fractions
+from src.flow import compute_flow_fractions, prepare_levels
 from src.params import Params
 from src.simulate import step_year
 
@@ -80,8 +80,9 @@ def _setup_domain():
 
     # S = 0, Q_out = 0 (zero-initialized by allocate)
 
-    # Precompute flow fractions
+    # Precompute flow fractions and wavefront levels
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, PARAMS.dx, PARAMS.p)
+    prepare_levels(fields)
 
     return fields
 

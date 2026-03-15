@@ -6,7 +6,7 @@ import numpy as np
 import taichi as ti
 
 from src.fields import allocate
-from src.flow import compute_flow_fractions
+from src.flow import compute_flow_fractions, prepare_levels
 from src.params import Params
 from src.simulate import step_day
 
@@ -32,6 +32,7 @@ def setup_grid(n: int, params: Params):
     fields.M.from_numpy(np.full((n, n), 0.1, dtype=np.float32))
 
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, params.dx, params.p)
+    prepare_levels(fields)
     return fields
 
 
@@ -41,12 +42,12 @@ def bench_grid(n: int) -> dict:
     fields = setup_grid(n, params)
 
     for _ in range(N_WARMUP):
-        step_day(fields, params, n_picard=10)
+        step_day(fields, params)
     ti.sync()
 
     start = time.perf_counter()
     for _ in range(N_STEPS):
-        step_day(fields, params, n_picard=10)
+        step_day(fields, params)
     ti.sync()
     elapsed = time.perf_counter() - start
 

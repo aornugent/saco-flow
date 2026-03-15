@@ -4,10 +4,12 @@ Section 10 of the test plan: positive/negative feedbacks, runoff-runon,
 and pattern instability. These are longer-running (multi-year simulations).
 """
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
-from src.flow import route_water
+from src.flow import route_wavefront
 from src.params import Params
 from src.simulate import step_year
 from src.soil_moisture import soil_moisture_step
@@ -108,10 +110,14 @@ def _run_hydrology_only(fields, n_days, rain_depth, params: Params):
     for _ in range(n_days):
         fields.R.fill(float(rain_depth) * 1000.0)  # m/day -> mm/day
 
-        for _ in range(20):
-            route_water(
+        for L in range(fields.max_level + 1):
+            begin = fields.level_start[L]
+            end = fields.level_start[L + 1]
+            route_wavefront(
+                fields.sorted_idx,
+                begin,
+                end,
                 fields.Q_out,
-                fields.Q_out_new,
                 fields.Q_daily,
                 fields.R,
                 fields.I_inf,
@@ -126,7 +132,6 @@ def _run_hydrology_only(fields, n_days, rain_depth, params: Params):
                 params.k2,
                 params.W0,
             )
-            fields.swap("Q_out")
 
         # I_inf is already in mm/day — no scaling needed
         soil_moisture_step(
@@ -149,14 +154,14 @@ def test_runoff_runon_moisture_gradient(slope_grid):
     No vegetation dynamics (g_max=0), so M reflects only the
     infiltration gradient: I = alpha*h*(V + k2*W0)/(V + k2).
 
-    Vegetated cells have ~11x higher infiltration capacity
-    (factor 0.55 vs 0.05), so more rainfall and runoff is captured
-    before it exits the domain.  Mean M should be higher.
+    Uses alpha=1.0 so that bare soil is capacity-limited (Q_out > 0)
+    while vegetated soil captures nearly all available water.
+    Mean M should be higher for the vegetated run.
 
     Deterministic, runs in seconds.
     """
     n = 16
-    params = _PARAMS
+    params = replace(_PARAMS, alpha=1.0)
     rain_depth = 0.01  # m/day — heavy enough that bare soil generates runoff
 
     results = {}
