@@ -27,28 +27,24 @@ def step_day(
         dt: Timestep [days]
     """
     # section 2: Water routing — one upstream-to-downstream sweep
-    for L in range(fields.max_level + 1):
-        begin = fields.level_start[L]
-        end = fields.level_start[L + 1]
-        route_wavefront(
-            fields.sorted_idx,
-            begin,
-            end,
-            fields.Q_out,
-            fields.Q_daily,
-            fields.R,
-            fields.I_inf,
-            fields.z,
-            fields.V,
-            fields.flow_frac,
-            fields.mask,
-            params.dx,
-            params.n_manning,
-            params.cn,
-            params.alpha,
-            params.k2,
-            params.W0,
-        )
+    route_wavefront(
+        fields.sorted_idx,
+        fields.n_active,
+        fields.Q_out,
+        fields.Q_daily,
+        fields.R,
+        fields.I_inf,
+        fields.z,
+        fields.V,
+        fields.flow_frac,
+        fields.mask,
+        params.dx,
+        params.n_manning,
+        params.cn,
+        params.alpha,
+        params.k2,
+        params.W0,
+    )
 
     # section 3: Soil moisture (no lateral diffusion per paper)
     # I_inf is already in mm/day — no conversion needed.

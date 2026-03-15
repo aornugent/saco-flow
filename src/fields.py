@@ -1,6 +1,6 @@
 """Taichi field allocation and buffer management."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import taichi as ti
 
@@ -23,9 +23,8 @@ class Fields:
     S_new: ti.Field  # sediment flux write [kg/m/day]
     mask: ti.Field  # active cell mask (1=active, 0=boundary)
     flow_frac: ti.Field  # MFD flow fractions to 8 neighbors (n, n, 8)
-    sorted_idx: ti.Field  # flat cell indices sorted by drainage level (n*n,)
-    level_start: list = field(default_factory=list)  # level boundaries
-    max_level: int = 0  # maximum drainage level
+    sorted_idx: ti.Field  # flat cell indices in topological order (n*n,)
+    n_active: int = 0  # number of active cells in sorted_idx
 
     def swap(self, name: str):
         """Swap read/write buffers in Python scope (no copy kernel)."""

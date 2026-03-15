@@ -151,26 +151,24 @@ def build_levels(z_np, mask_np, flow_frac_np):
 def prepare_levels(fields):
     """Build wavefront levels from current flow state.
 
-    Call after compute_flow_fractions.  Stores sorted_idx, level_start,
-    and max_level on fields.
+    Call after compute_flow_fractions.  Stores sorted_idx and n_active
+    on fields.
     """
     z_np = fields.z.to_numpy()
     mask_np = fields.mask.to_numpy()
     ff_np = fields.flow_frac.to_numpy()
-    sorted_idx_np, level_start, max_level = build_levels(z_np, mask_np, ff_np)
+    sorted_idx_np, _, _ = build_levels(z_np, mask_np, ff_np)
 
     buf = np.zeros(fields.n * fields.n, dtype=np.int32)
     buf[: len(sorted_idx_np)] = sorted_idx_np
     fields.sorted_idx.from_numpy(buf)
-    fields.level_start = level_start
-    fields.max_level = max_level
+    fields.n_active = len(sorted_idx_np)
 
 
 @ti.kernel
 def route_wavefront(
     sorted_idx: ti.template(),
-    begin: ti.i32,
-    end: ti.i32,
+    n_active: ti.i32,
     Q_out: ti.template(),
     Q_daily: ti.template(),
     R: ti.template(),
@@ -186,17 +184,18 @@ def route_wavefront(
     k2: ti.f32,
     W0: ti.f32,
 ):
-    """Wavefront water routing for one drainage level.
+    """Serial wavefront water routing over all cells in topological order.
 
-    Processes cells at a single level.  Upstream cells (lower levels) already
-    hold today's Q_out; single-buffered, no swap needed.
+    Cells in sorted_idx are ordered upstream-to-downstream.  When cell k
+    is processed, all its upslope contributors (at lower indices) already
+    hold today's Q_out.  Single kernel launch per day.
 
     All discharge quantities are unit-width, mm-based [mm*m/day].
 
     Args:
-        sorted_idx: Flat cell indices sorted by level
-        begin, end: Range in sorted_idx for this level
-        Q_out: Discharge field (read upstream, write this level) [mm*m/day]
+        sorted_idx: Flat cell indices in topological (upstream-first) order
+        n_active: Number of valid entries in sorted_idx
+        Q_out: Discharge field (read/write) [mm*m/day]
         Q_daily: Cell-average discharge (write) [mm*m/day]
         R: Rainfall rate [mm/day]
         I_inf: Infiltration rate (write) [mm/day]
@@ -211,7 +210,8 @@ def route_wavefront(
         k2: Vegetation half-saturation [g/m^2]
         W0: Bare-soil infiltration fraction [-]
     """
-    for k in range(begin, end):
+    ti.loop_config(serialize=True)
+    for k in range(n_active):
         idx = sorted_idx[k]
         i = idx // Q_out.shape[1]
         j = idx % Q_out.shape[1]

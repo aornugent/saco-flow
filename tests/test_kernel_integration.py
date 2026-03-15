@@ -23,29 +23,25 @@ _PARAMS = Params()
 
 
 def _route_sweep(fields, params):
-    """Run one full wavefront routing sweep (all levels)."""
-    for L in range(fields.max_level + 1):
-        begin = fields.level_start[L]
-        end = fields.level_start[L + 1]
-        route_wavefront(
-            fields.sorted_idx,
-            begin,
-            end,
-            fields.Q_out,
-            fields.Q_daily,
-            fields.R,
-            fields.I_inf,
-            fields.z,
-            fields.V,
-            fields.flow_frac,
-            fields.mask,
-            params.dx,
-            params.n_manning,
-            params.cn,
-            params.alpha,
-            params.k2,
-            params.W0,
-        )
+    """Run one full wavefront routing sweep."""
+    route_wavefront(
+        fields.sorted_idx,
+        fields.n_active,
+        fields.Q_out,
+        fields.Q_daily,
+        fields.R,
+        fields.I_inf,
+        fields.z,
+        fields.V,
+        fields.flow_frac,
+        fields.mask,
+        params.dx,
+        params.n_manning,
+        params.cn,
+        params.alpha,
+        params.k2,
+        params.W0,
+    )
 
 
 # ── Section 7: Unit Conversion ───────────────────────────────────────────────

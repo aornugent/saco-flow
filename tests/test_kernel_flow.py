@@ -138,29 +138,25 @@ def test_flow_fractions_pit_cell(grid):
 
 
 def _route_sweep(fields, dx, n_manning=0.03, cn=1.0, alpha=0.0, k2=5.0, W0=0.2):
-    """Run one full wavefront routing sweep (all levels)."""
-    for L in range(fields.max_level + 1):
-        begin = fields.level_start[L]
-        end = fields.level_start[L + 1]
-        route_wavefront(
-            fields.sorted_idx,
-            begin,
-            end,
-            fields.Q_out,
-            fields.Q_daily,
-            fields.R,
-            fields.I_inf,
-            fields.z,
-            fields.V,
-            fields.flow_frac,
-            fields.mask,
-            dx,
-            n_manning,
-            cn,
-            alpha,
-            k2,
-            W0,
-        )
+    """Run one full wavefront routing sweep."""
+    route_wavefront(
+        fields.sorted_idx,
+        fields.n_active,
+        fields.Q_out,
+        fields.Q_daily,
+        fields.R,
+        fields.I_inf,
+        fields.z,
+        fields.V,
+        fields.flow_frac,
+        fields.mask,
+        dx,
+        n_manning,
+        cn,
+        alpha,
+        k2,
+        W0,
+    )
 
 
 def test_route_water_cell_balance(grid):

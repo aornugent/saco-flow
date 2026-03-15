@@ -118,28 +118,24 @@ def test_wavefront_matches_serial_sweep(grid):
     n_manning, cn, alpha, k2, W0 = 0.05, 1.0, 8.0, 18.0, 0.05
 
     # Run wavefront kernel
-    for L in range(fields.max_level + 1):
-        begin = fields.level_start[L]
-        end = fields.level_start[L + 1]
-        route_wavefront(
-            fields.sorted_idx,
-            begin,
-            end,
-            fields.Q_out,
-            fields.Q_daily,
-            fields.R,
-            fields.I_inf,
-            fields.z,
-            fields.V,
-            fields.flow_frac,
-            fields.mask,
-            dx,
-            n_manning,
-            cn,
-            alpha,
-            k2,
-            W0,
-        )
+    route_wavefront(
+        fields.sorted_idx,
+        fields.n_active,
+        fields.Q_out,
+        fields.Q_daily,
+        fields.R,
+        fields.I_inf,
+        fields.z,
+        fields.V,
+        fields.flow_frac,
+        fields.mask,
+        dx,
+        n_manning,
+        cn,
+        alpha,
+        k2,
+        W0,
+    )
 
     Q_out_kernel = fields.Q_out.to_numpy()
     Q_daily_kernel = fields.Q_daily.to_numpy()
@@ -213,28 +209,24 @@ def test_wavefront_mass_balance(grid):
 
     n_manning, cn, alpha, k2, W0 = 0.05, 1.0, 8.0, 18.0, 0.05
 
-    for L in range(fields.max_level + 1):
-        begin = fields.level_start[L]
-        end = fields.level_start[L + 1]
-        route_wavefront(
-            fields.sorted_idx,
-            begin,
-            end,
-            fields.Q_out,
-            fields.Q_daily,
-            fields.R,
-            fields.I_inf,
-            fields.z,
-            fields.V,
-            fields.flow_frac,
-            fields.mask,
-            dx,
-            n_manning,
-            cn,
-            alpha,
-            k2,
-            W0,
-        )
+    route_wavefront(
+        fields.sorted_idx,
+        fields.n_active,
+        fields.Q_out,
+        fields.Q_daily,
+        fields.R,
+        fields.I_inf,
+        fields.z,
+        fields.V,
+        fields.flow_frac,
+        fields.mask,
+        dx,
+        n_manning,
+        cn,
+        alpha,
+        k2,
+        W0,
+    )
 
     Q_out = fields.Q_out.to_numpy()
     I_inf = fields.I_inf.to_numpy()

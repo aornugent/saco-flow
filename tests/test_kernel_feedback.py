@@ -110,28 +110,24 @@ def _run_hydrology_only(fields, n_days, rain_depth, params: Params):
     for _ in range(n_days):
         fields.R.fill(float(rain_depth) * 1000.0)  # m/day -> mm/day
 
-        for L in range(fields.max_level + 1):
-            begin = fields.level_start[L]
-            end = fields.level_start[L + 1]
-            route_wavefront(
-                fields.sorted_idx,
-                begin,
-                end,
-                fields.Q_out,
-                fields.Q_daily,
-                fields.R,
-                fields.I_inf,
-                fields.z,
-                fields.V,
-                fields.flow_frac,
-                fields.mask,
-                params.dx,
-                params.n_manning,
-                params.cn,
-                params.alpha,
-                params.k2,
-                params.W0,
-            )
+        route_wavefront(
+            fields.sorted_idx,
+            fields.n_active,
+            fields.Q_out,
+            fields.Q_daily,
+            fields.R,
+            fields.I_inf,
+            fields.z,
+            fields.V,
+            fields.flow_frac,
+            fields.mask,
+            params.dx,
+            params.n_manning,
+            params.cn,
+            params.alpha,
+            params.k2,
+            params.W0,
+        )
 
         # I_inf is already in mm/day — no scaling needed
         soil_moisture_step(
