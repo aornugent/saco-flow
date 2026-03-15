@@ -19,10 +19,10 @@ class Params:
     # Flow routing (Table I)
     p: float = 2.0  # MFD convergence exponent [-]
     n_manning: float = 0.05  # Manning's roughness [s/m^(1/3)]
-    cn: float = 86400.0  # Manning unit conversion [s/day]
+    cn: float = 864.0  # Manning conversion for q [mm·m/d] → h [mm]
 
     # Infiltration (Table I / Table II)
-    alpha: float = 100.0  # infiltration capacity [1/day]
+    alpha: float = 8.0  # infiltration capacity [1/day]
     k2: float = 18.0  # vegetation half-saturation for infiltration [g/m²]
     W0: float = 0.05  # bare-soil infiltration fraction [-]
 

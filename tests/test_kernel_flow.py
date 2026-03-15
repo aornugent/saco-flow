@@ -286,12 +286,11 @@ def test_route_water_picard_analytical(grid):
     for _ in range(5):
         Q_o_prev = Q_o
         q = (Q_in + Q_o) / 2.0  # mm*m/day
-        q_m2 = q * 0.001  # m^2/day
-        if q_m2 > 0.0 and cn > 0.0:
-            h_val = (q_m2 * n_manning / (cn * math.sqrt(slope_max))) ** 0.6
+        if q > 0.0 and cn > 0.0:
+            h_val = (q * n_manning / (cn * math.sqrt(slope_max))) ** 0.6  # mm
         else:
             h_val = 0.0
-        I_val = alpha * h_val * (V + k2 * W0) / (V + k2) * 1000.0  # mm/day
+        I_val = alpha * h_val * (V + k2 * W0) / (V + k2)  # mm/day
         Q_o = max(0.0, Q_in + R_mm * dx - I_val * dx)
     Q_o = (Q_o + Q_o_prev) / 2.0
 

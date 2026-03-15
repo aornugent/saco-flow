@@ -205,7 +205,7 @@ def route_wavefront(
         mask: Active cell mask
         dx: Cell spacing [m]
         n_manning: Manning's roughness [s/m^(1/3)]
-        cn: Kinematic wave constant
+        cn: Manning conversion for q [mm·m/d] → h [mm]
         alpha: Infiltration capacity [1/day]
         k2: Vegetation half-saturation [g/m^2]
         W0: Bare-soil infiltration fraction [-]
@@ -230,19 +230,14 @@ def route_wavefront(
 
         for _ in ti.static(range(5)):
             Q_o_prev = Q_o
-            # Eq 12: q = (Q_in + Q_out) / 2  [mm*m/day]
-            q = (Q_in + Q_o) / 2.0
-            # h = (q_m2 * n_manning / (cn * sqrt(slope_max)))^(3/5)
-            # q_m2 = q * 0.001 converts mm*m/day -> m^2/day
+            q = (Q_in + Q_o) / 2.0  # [mm*m/day]
             h_val = ti.cast(0.0, ti.f32)
             if q > 0.0 and cn > 0.0:
                 h_val = ti.pow(
-                    q * 0.001 * n_manning / (cn * ti.sqrt(slope_max)),
+                    q * n_manning / (cn * ti.sqrt(slope_max)),
                     0.6,
-                )
-            # I = alpha * h * (V + k2*W0) / (V + k2) * 1000  [mm/day]
-            I_val = alpha * h_val * (v + k2 * W0) / (v + k2) * 1000.0
-            # Q_out = max(0, Q_in + R*dx - I*dx)  [mm*m/day]
+                )  # [mm]
+            I_val = alpha * h_val * (v + k2 * W0) / (v + k2)  # [mm/day]
             Q_o = ti.max(0.0, Q_in + R[i, j] * dx - I_val * dx)
 
         # Average last two iterates to stabilise period-2 orbits

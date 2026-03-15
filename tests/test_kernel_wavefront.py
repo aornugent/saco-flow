@@ -73,12 +73,11 @@ def _serial_route(
         for _ in range(5):
             Q_o_prev = Q_o
             q = (Q_in + Q_o) / 2.0
-            q_m2 = q * 0.001
-            if q_m2 > 0.0 and cn > 0.0:
-                h_val = (q_m2 * n_manning / (cn * math.sqrt(slope_max))) ** 0.6
+            if q > 0.0 and cn > 0.0:
+                h_val = (q * n_manning / (cn * math.sqrt(slope_max))) ** 0.6
             else:
                 h_val = 0.0
-            I_val = alpha * h_val * (v + k2 * W0) / (v + k2) * 1000.0
+            I_val = alpha * h_val * (v + k2 * W0) / (v + k2)
             Q_o = max(0.0, Q_in + float(R_np[i, j]) * dx - I_val * dx)
 
         # Average last two iterates (matches kernel stabilisation)
