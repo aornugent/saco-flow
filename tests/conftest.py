@@ -5,7 +5,7 @@ import pytest
 import taichi as ti
 
 from src.fields import allocate
-from src.flow import compute_flow_fractions
+from src.flow import compute_flow_fractions, prepare_levels
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -40,6 +40,7 @@ def slope_grid(grid):
             z[i, :] = float(n - 1 - i) * step
         fields.z.from_numpy(z)
         compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, p)
+        prepare_levels(fields)
         return fields
 
     return _make

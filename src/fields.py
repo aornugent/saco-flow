@@ -14,8 +14,7 @@ class Fields:
     M: ti.Field  # soil moisture [mm]  (point-wise update, no buffer needed)
     V: ti.Field  # vegetation density read [g/m^2]
     V_new: ti.Field  # vegetation density write [g/m^2]
-    Q_out: ti.Field  # outgoing discharge read [mm*m/day]
-    Q_out_new: ti.Field  # outgoing discharge write [mm*m/day]
+    Q_out: ti.Field  # outgoing discharge, single-buffered [mm*m/day]
     Q_daily: ti.Field  # cell-average discharge (Q_in+Q_out)/2 [mm*m/day]
     Q_annual: ti.Field  # accumulated annual discharge [mm*m/yr]
     I_inf: ti.Field  # infiltration rate [mm/day]
@@ -24,6 +23,8 @@ class Fields:
     S_new: ti.Field  # sediment flux write [kg/m/day]
     mask: ti.Field  # active cell mask (1=active, 0=boundary)
     flow_frac: ti.Field  # MFD flow fractions to 8 neighbors (n, n, 8)
+    sorted_idx: ti.Field  # flat cell indices in topological order (n*n,)
+    n_active: int = 0  # number of active cells in sorted_idx
 
     def swap(self, name: str):
         """Swap read/write buffers in Python scope (no copy kernel)."""
@@ -36,8 +37,8 @@ class Fields:
 def allocate(n: int) -> Fields:
     """Allocate all Taichi fields for an n x n grid.
 
-    Double-buffered fields: V, Q_out, S (stencil/gather ops).
-    Single fields: z, M, I_inf, R (point-wise or recomputed each step).
+    Double-buffered fields: V, S (stencil/gather ops).
+    Single-buffered: z, M, Q_out, I_inf, R (point-wise, wavefront, or recomputed).
     """
     return Fields(
         n=n,
@@ -46,7 +47,6 @@ def allocate(n: int) -> Fields:
         V=ti.field(ti.f32, shape=(n, n)),
         V_new=ti.field(ti.f32, shape=(n, n)),
         Q_out=ti.field(ti.f32, shape=(n, n)),
-        Q_out_new=ti.field(ti.f32, shape=(n, n)),
         Q_daily=ti.field(ti.f32, shape=(n, n)),
         Q_annual=ti.field(ti.f32, shape=(n, n)),
         I_inf=ti.field(ti.f32, shape=(n, n)),
@@ -55,4 +55,5 @@ def allocate(n: int) -> Fields:
         S_new=ti.field(ti.f32, shape=(n, n)),
         mask=ti.field(ti.i32, shape=(n, n)),
         flow_frac=ti.field(ti.f32, shape=(n, n, 8)),
+        sorted_idx=ti.field(ti.i32, shape=(n * n,)),
     )

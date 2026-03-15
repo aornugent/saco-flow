@@ -1,7 +1,12 @@
 """Daily/annual simulation orchestrator per Baartman et al. (2018) section 7."""
 
 from src.fields import Fields
-from src.flow import accumulate_annual_Q, compute_flow_fractions, route_water
+from src.flow import (
+    accumulate_annual_Q,
+    compute_flow_fractions,
+    prepare_levels,
+    route_wavefront,
+)
 from src.params import Params
 from src.sediment import sediment_transport, update_elevation
 from src.soil_moisture import soil_moisture_step
@@ -13,36 +18,33 @@ def step_day(
     params: Params,
     *,
     dt: float = 1.0,
-    n_picard: int = 20,
 ):
     """Run one daily timestep: water routing, soil moisture, vegetation.
 
     Args:
-        fields: Simulation fields (flow_frac must be precomputed)
+        fields: Simulation fields (flow_frac and levels must be precomputed)
         params: Physical constants
         dt: Timestep [days]
-        n_picard: Global Picard iterations for water routing
     """
-    # section 2: Water routing (global Picard iteration)
-    for _ in range(n_picard):
-        route_water(
-            fields.Q_out,
-            fields.Q_out_new,
-            fields.Q_daily,
-            fields.R,
-            fields.I_inf,
-            fields.z,
-            fields.V,
-            fields.flow_frac,
-            fields.mask,
-            params.dx,
-            params.n_manning,
-            params.cn,
-            params.alpha,
-            params.k2,
-            params.W0,
-        )
-        fields.swap("Q_out")
+    # section 2: Water routing — one upstream-to-downstream sweep
+    route_wavefront(
+        fields.sorted_idx,
+        fields.n_active,
+        fields.Q_out,
+        fields.Q_daily,
+        fields.R,
+        fields.I_inf,
+        fields.z,
+        fields.V,
+        fields.flow_frac,
+        fields.mask,
+        params.dx,
+        params.n_manning,
+        params.cn,
+        params.alpha,
+        params.k2,
+        params.W0,
+    )
 
     # section 3: Soil moisture (no lateral diffusion per paper)
     # I_inf is already in mm/day — no conversion needed.
@@ -85,7 +87,6 @@ def step_year(
     *,
     rain=None,
     dt: float = 1.0,
-    n_picard: int = 20,
 ):
     """Run one year: daily steps + annual sediment/elevation update.
 
@@ -93,13 +94,12 @@ def step_year(
     when rain is None (fields.R must be preset in mm/day in that case).
 
     Args:
-        fields: Simulation fields (flow_frac must be precomputed)
+        fields: Simulation fields (flow_frac and levels must be precomputed)
         params: Physical constants
         rain: Daily rainfall array [m/day]. Length determines days per year.
               Converted to mm/day internally.
               If None, fields.R must be preset in mm/day and 365 steps are run.
         dt: Daily timestep [days]
-        n_picard: Global Picard iterations for water routing
     """
     days = len(rain) if rain is not None else 365
 
@@ -108,7 +108,7 @@ def step_year(
     for day in range(days):
         if rain is not None:
             fields.R.fill(float(rain[day]) * 1000.0)  # m/day -> mm/day
-        step_day(fields, params, dt=dt, n_picard=n_picard)
+        step_day(fields, params, dt=dt)
         accumulate_annual_Q(fields.Q_annual, fields.Q_daily, fields.mask)
 
     # section 5: Sediment transport (annual, uses cumulative annual Q)
@@ -138,5 +138,6 @@ def step_year(
     )
     fields.swap("S")
 
-    # section 1: Recompute flow fractions from updated elevation
+    # section 1: Recompute flow fractions and wavefront levels
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, params.dx, params.p)
+    prepare_levels(fields)

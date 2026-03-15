@@ -7,14 +7,14 @@ Q_annual accumulation, and CFL/parameter assertions.
 With the mm-based unit system:
   - R, I_inf, M are in mm/day or mm
   - Q is unit-width mm*m/day (daily) or mm*m/yr (annual)
-  - No _scale_field needed; route_water produces I_inf in mm/day directly
+  - No _scale_field needed; route_wavefront produces I_inf in mm/day directly
 """
 
 from dataclasses import replace
 
 import numpy as np
 
-from src.flow import compute_flow_fractions, route_water
+from src.flow import compute_flow_fractions, prepare_levels, route_wavefront
 from src.params import Params
 from src.simulate import step_day, step_year
 
@@ -22,11 +22,33 @@ from src.simulate import step_day, step_year
 _PARAMS = Params()
 
 
+def _route_sweep(fields, params):
+    """Run one full wavefront routing sweep."""
+    route_wavefront(
+        fields.sorted_idx,
+        fields.n_active,
+        fields.Q_out,
+        fields.Q_daily,
+        fields.R,
+        fields.I_inf,
+        fields.z,
+        fields.V,
+        fields.flow_frac,
+        fields.mask,
+        params.dx,
+        params.n_manning,
+        params.cn,
+        params.alpha,
+        params.k2,
+        params.W0,
+    )
+
+
 # ── Section 7: Unit Conversion ───────────────────────────────────────────────
 
 
 def test_I_inf_units_from_route_water(slope_grid):
-    """7.1: I_inf comes out of route_water in mm/day directly.
+    """7.1: I_inf comes out of route_wavefront in mm/day directly.
 
     With alpha=0, I_inf should be 0.
     With alpha>0, I_inf should be positive and in mm/day.
@@ -43,25 +65,7 @@ def test_I_inf_units_from_route_water(slope_grid):
     p = replace(_PARAMS, dx=dx, alpha=0.0, n_manning=0.03, k2=5.0, W0=0.2)
 
     # Test with alpha=0: I_inf should be 0
-    for _ in range(5):
-        route_water(
-            fields.Q_out,
-            fields.Q_out_new,
-            fields.Q_daily,
-            fields.R,
-            fields.I_inf,
-            fields.z,
-            fields.V,
-            fields.flow_frac,
-            fields.mask,
-            p.dx,
-            p.n_manning,
-            p.cn,
-            p.alpha,
-            p.k2,
-            p.W0,
-        )
-        fields.swap("Q_out")
+    _route_sweep(fields, p)
 
     I_inf = fields.I_inf.to_numpy()
     mask = fields.mask.to_numpy()
@@ -71,25 +75,7 @@ def test_I_inf_units_from_route_water(slope_grid):
     # Now test with alpha > 0 — I_inf should be positive mm/day
     p_alpha = replace(p, alpha=1.0)
     fields.Q_out.fill(0.0)
-    for _ in range(5):
-        route_water(
-            fields.Q_out,
-            fields.Q_out_new,
-            fields.Q_daily,
-            fields.R,
-            fields.I_inf,
-            fields.z,
-            fields.V,
-            fields.flow_frac,
-            fields.mask,
-            p_alpha.dx,
-            p_alpha.n_manning,
-            p_alpha.cn,
-            p_alpha.alpha,
-            p_alpha.k2,
-            p_alpha.W0,
-        )
-        fields.swap("Q_out")
+    _route_sweep(fields, p_alpha)
 
     I_inf = fields.I_inf.to_numpy()
     # I_inf should be positive where there's water
@@ -232,6 +218,7 @@ def test_annual_Q_accumulation(grid):
     z = np.full((n, n), 10.0, dtype=np.float32)
     fields.z.from_numpy(z)
     compute_flow_fractions(fields.z, fields.mask, fields.flow_frac, dx, 1.0)
+    prepare_levels(fields)
 
     R_val = 0.01  # m/day (converted to mm/day inside step_year)
     R_mm = R_val * 1000.0  # 10 mm/day
@@ -375,7 +362,7 @@ def test_growth_overcomes_mortality():
 def test_infiltration_units_pipeline(slope_grid):
     """11.3: Infiltration units through the pipeline.
 
-    route_water produces I_inf directly in mm/day.
+    route_wavefront produces I_inf directly in mm/day.
     soil_moisture_step consumes mm/day.
     No scaling step needed.
     """
@@ -390,25 +377,7 @@ def test_infiltration_units_pipeline(slope_grid):
     p = replace(_PARAMS, dx=dx, alpha=1.0, n_manning=0.03, k2=5.0, W0=0.2)
 
     # Route water with alpha > 0
-    for _ in range(5):
-        route_water(
-            fields.Q_out,
-            fields.Q_out_new,
-            fields.Q_daily,
-            fields.R,
-            fields.I_inf,
-            fields.z,
-            fields.V,
-            fields.flow_frac,
-            fields.mask,
-            p.dx,
-            p.n_manning,
-            p.cn,
-            p.alpha,
-            p.k2,
-            p.W0,
-        )
-        fields.swap("Q_out")
+    _route_sweep(fields, p)
 
     I_inf = fields.I_inf.to_numpy()
     mask = fields.mask.to_numpy()
