@@ -71,21 +71,21 @@ def sediment_transport(
     the year.  Multiplying by 0.001 gives q in m^2/yr — the LAPSUS units.
 
     Args:
-        S: Sediment flux read [kg/m/yr]
-        S_new: Sediment flux write [kg/m/yr]
+        S: Sediment flux read [m²/yr]
+        S_new: Sediment flux write [m²/yr]
         Q: Annual cumulative unit-width discharge [mm*m/yr]
         z: Elevation [m]
-        V: Vegetation density [%]
+        V: Vegetation density [g/m²]
         flow_frac: MFD fractions (n, n, 8)
         mask: Active cell mask
         dx: Cell spacing [m]
         gamma: Transport coefficient [-]
         m_exp: Discharge exponent [-]
         n_exp: Slope exponent [-]
-        K_max, K_min: Erosion coefficient range [-]
-        P_min, P_max: Deposition coefficient range [-]
-        v_low: Vegetation threshold for max erosion [%]
-        v_high: Vegetation threshold for min erosion [%]
+        K_max, K_min: Erosion coefficient range [m⁻¹]
+        P_min, P_max: Deposition coefficient range [m⁻¹]
+        v_low: Vegetation threshold for max erosion [g/m²]
+        v_high: Vegetation threshold for min erosion [g/m²]
     """
     n = S.shape[0]
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
@@ -135,8 +135,8 @@ def update_elevation(
 
     Args:
         z: Elevation field (read/write) [m]
-        S: Pre-transport sediment flux (read) [kg/m/yr]
-        S_new: Post-transport sediment flux (read) [kg/m/yr]
+        S: Pre-transport sediment flux (read) [m²/yr]
+        S_new: Post-transport sediment flux (read) [m²/yr]
         flow_frac: MFD fractions (n, n, 8)
         mask: Active cell mask
         dx: Cell spacing [m]

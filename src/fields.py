@@ -19,8 +19,8 @@ class Fields:
     Q_annual: ti.Field  # accumulated annual discharge [mm*m/yr]
     I_inf: ti.Field  # infiltration rate [mm/day]
     R: ti.Field  # rainfall rate [mm/day]
-    S: ti.Field  # sediment flux read [kg/m/day]
-    S_new: ti.Field  # sediment flux write [kg/m/day]
+    S: ti.Field  # sediment flux read [m²/yr]
+    S_new: ti.Field  # sediment flux write [m²/yr]
     mask: ti.Field  # active cell mask (1=active, 0=boundary)
     flow_frac: ti.Field  # MFD flow fractions to 8 neighbors (n, n, 8)
     sorted_idx: ti.Field  # flat cell indices in topological order (n*n,)
