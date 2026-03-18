@@ -32,7 +32,8 @@ def _generate_rainfall(seed: int) -> np.ndarray:
     """Generate 3-year rainfall block, repeated 20× → 60 years.
 
     Each year: 70 wet days uniformly distributed, rainfall per wet day
-    drawn from Exponential(mean=4.17 mm).  70 × 4.17 ≈ 292 mm/yr.
+    drawn from Gamma(k=0.5, θ=8.34) → mean 4.17 mm with fat tails
+    representative of Mediterranean rainfall.  70 × 4.17 ≈ 292 mm/yr.
     Returns array of shape (60*365,) in m/day.
     """
     rng = np.random.default_rng(seed)
@@ -40,7 +41,7 @@ def _generate_rainfall(seed: int) -> np.ndarray:
     for yr in range(3):
         start = yr * 365
         wet_days = rng.choice(365, size=70, replace=False)
-        amounts_mm = rng.exponential(4.17, size=70).astype(np.float32)
+        amounts_mm = rng.gamma(0.5, 8.34, size=70).astype(np.float32)
         for d, amt in zip(wet_days, amounts_mm, strict=True):
             block[start + d] = amt / 1000.0  # mm → m
     return np.tile(block, 20)  # 3 yr × 20 = 60 yr
