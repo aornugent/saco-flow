@@ -22,7 +22,7 @@ class Params:
     cn: float = 864.0  # Manning conversion for q [mm·m/d] → h [mm]
 
     # Infiltration (Table I / Table II)
-    alpha: float = 8.0  # infiltration capacity [1/day]
+    alpha: float = 80.0  # infiltration capacity [1/day]
     k2: float = 18.0  # vegetation half-saturation for infiltration [g/m²]
     W0: float = 0.05  # bare-soil infiltration fraction [-]
 
