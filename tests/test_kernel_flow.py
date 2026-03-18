@@ -243,11 +243,37 @@ def test_route_water_zero_infiltration_analytical(grid):
     )
 
 
-def test_route_water_picard_analytical(grid):
-    """2.3: Ridgetop Picard iteration matches Python reference computation.
+def _newton_quintic(Q_in, Q_max, n_manning, cn, slope_max, alpha, k2, W0, V, dx):
+    """Python reference: Newton-Raphson on quintic x^5 + C_I*x^3 - K = 0."""
+    K = Q_in + Q_max
+    if K <= 0.0:
+        return 0.0
+
+    manning_ratio = n_manning / (2.0 * cn * math.sqrt(slope_max))
+    C_I = alpha * manning_ratio**0.6 * (V + k2 * W0) / (V + k2) * dx
+
+    if C_I < 1e-12:
+        return Q_max
+
+    x = min(K**0.2, (K / C_I) ** (1.0 / 3.0))
+    for _ in range(8):  # extra iterations for f64 reference
+        x2 = x * x
+        x3 = x2 * x
+        f = x3 * x2 + C_I * x3 - K
+        fp = 5.0 * x2 * x2 + 3.0 * C_I * x2
+        x -= f / fp
+        x = max(x, 0.0)
+
+    S = x**5
+    Q_o = max(0.0, S - Q_in)
+    return min(Q_o, Q_max)
+
+
+def test_route_water_newton_analytical(grid):
+    """2.3: Ridgetop Newton solver matches Python reference computation.
 
     5x5 grid with slope=1/dx.  Cell [1,2] is a ridgetop (Q_in=0).
-    R=10 mm/day, V=10, alpha=1.0.  One wavefront sweep, 5 local Picard.
+    R=10 mm/day, V=10, alpha=1.0.  One wavefront sweep, 5 Newton steps.
     """
     n = 5
     dx = 1.0
@@ -268,31 +294,12 @@ def test_route_water_picard_analytical(grid):
 
     _route_sweep(fields, dx, n_manning=0.03, cn=1.0, alpha=1.0, k2=5.0, W0=0.2)
 
-    # Python reference: Picard iteration for ridgetop cell [1,2]
-    # Q_in = 0 (only upslope is boundary row 0)
+    # Python reference: Newton on quintic for ridgetop cell [1,2]
     Q_in = 0.0
-    V = 10.0
-    alpha = 1.0
-    k2 = 5.0
-    W0 = 0.2
-    n_manning = 0.03
-    cn = 1.0
+    slope_max = 1.0  # south neighbor [2,2] z=2, slope=(3-2)/dx=1.0
+    Q_max = Q_in + R_mm * dx
 
-    # slope_max at [1,2]: south neighbor [2,2] z=2, slope=(3-2)/dx=1.0
-    slope_max = 1.0
-
-    Q_o = Q_in  # initial guess
-    Q_o_prev = Q_o
-    for _ in range(5):
-        Q_o_prev = Q_o
-        q = (Q_in + Q_o) / 2.0  # mm*m/day
-        if q > 0.0 and cn > 0.0:
-            h_val = (q * n_manning / (cn * math.sqrt(slope_max))) ** 0.6  # mm
-        else:
-            h_val = 0.0
-        I_val = alpha * h_val * (V + k2 * W0) / (V + k2)  # mm/day
-        Q_o = max(0.0, Q_in + R_mm * dx - I_val * dx)
-    Q_o = (Q_o + Q_o_prev) / 2.0
+    Q_o = _newton_quintic(Q_in, Q_max, 0.03, 1.0, slope_max, 1.0, 5.0, 0.2, 10.0, dx)
 
     expected_Q_out = Q_o
     expected_Q_daily = (Q_in + Q_o) / 2.0

@@ -34,8 +34,9 @@ def _serial_route(
 ):
     """Pure-Python serial sweep: process cells in sorted_idx order.
 
-    Same gather + Picard as the kernel, but executed one cell at a time
-    in strict upstream-to-downstream order.  Returns Q_out, Q_daily, I_inf.
+    Same gather + Newton-on-quintic as the kernel, but executed one cell
+    at a time in strict upstream-to-downstream order.
+    Returns Q_out, Q_daily, I_inf.
     """
     n = z_np.shape[0]
     Q_out = np.zeros((n, n), dtype=np.float64)
@@ -65,23 +66,32 @@ def _serial_route(
                 slope_k = (z_np[i, j] - z_np[ni, nj]) / dist
                 slope_max = max(slope_max, slope_k)
 
-        # Local Picard: 5 iterations
+        # Newton-Raphson on quintic: x^5 + C_I*x^3 - K = 0
         v = float(V_np[i, j])
-        Q_o = Q_in
-        Q_o_prev = Q_o
-        I_val = 0.0
-        for _ in range(5):
-            Q_o_prev = Q_o
-            q = (Q_in + Q_o) / 2.0
-            if q > 0.0 and cn > 0.0:
-                h_val = (q * n_manning / (cn * math.sqrt(slope_max))) ** 0.6
-            else:
-                h_val = 0.0
-            I_val = alpha * h_val * (v + k2 * W0) / (v + k2)
-            Q_o = max(0.0, Q_in + float(R_np[i, j]) * dx - I_val * dx)
+        Q_max = Q_in + float(R_np[i, j]) * dx
+        K = Q_in + Q_max
 
-        # Average last two iterates (matches kernel stabilisation)
-        Q_o = (Q_o + Q_o_prev) / 2.0
+        C_I = 0.0
+        if cn > 0.0 and alpha > 0.0:
+            manning_ratio = n_manning / (2.0 * cn * math.sqrt(slope_max))
+            C_I = alpha * manning_ratio**0.6 * (v + k2 * W0) / (v + k2) * dx
+
+        if K <= 0.0:
+            Q_o = 0.0
+        elif C_I < 1e-12:
+            Q_o = Q_max
+        else:
+            x = min(K**0.2, (K / C_I) ** (1.0 / 3.0))
+            for _ in range(8):
+                x2 = x * x
+                x3 = x2 * x
+                f = x3 * x2 + C_I * x3 - K
+                fp = 5.0 * x2 * x2 + 3.0 * C_I * x2
+                x -= f / fp
+                x = max(x, 0.0)
+            S = x**5
+            Q_o = max(0.0, S - Q_in)
+            Q_o = min(Q_o, Q_max)
 
         Q_out[i, j] = Q_o
         Q_daily[i, j] = (Q_in + Q_o) / 2.0
@@ -95,7 +105,7 @@ def test_wavefront_matches_serial_sweep(grid):
 
     On a 20×20 planar slope, run the wavefront kernel and a plain Python
     loop that processes cells in sorted_idx order with the same gather +
-    Picard.  Q_out must match within float32 tolerance.
+    Newton solver.  Q_out must match within float32 tolerance.
     """
     n = 20
     dx = 5.0

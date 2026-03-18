@@ -222,28 +222,40 @@ def route_wavefront(
         # Max downslope gradient (Lambda_max, floored at 1e-4)
         slope_max = max_downslope(z, flow_frac, i, j, dx)
 
-        # Local Picard: 5 iterations for h-I-Q_out coupling
+        # Newton-Raphson on quintic polynomial for h-I-Q_out coupling.
+        # Substituting S = Q_in + Q_out = x^5 transforms the implicit
+        # water balance into f(x) = x^5 + C_I*x^3 - K = 0, which is
+        # strictly convex for x > 0 — pure polynomial, no fractional powers.
         v = V[i, j]
-        Q_o = Q_in
-        Q_o_prev = Q_o
-        I_val = ti.cast(0.0, ti.f32)
+        Q_max = Q_in + R[i, j] * dx
+        K = Q_in + Q_max  # [mm*m/day]
 
-        for _ in ti.static(range(5)):
-            Q_o_prev = Q_o
-            q = (Q_in + Q_o) / 2.0  # [mm*m/day]
-            h_val = ti.cast(0.0, ti.f32)
-            if q > 0.0 and cn > 0.0:
-                h_val = ti.pow(
-                    q * n_manning / (cn * ti.sqrt(slope_max)),
-                    0.6,
-                )  # [mm]
-            I_val = alpha * h_val * (v + k2 * W0) / (v + k2)  # [mm/day]
-            Q_o = ti.max(0.0, Q_in + R[i, j] * dx - I_val * dx)
+        # Infiltration coefficient: groups Manning's, vegetation, grid spacing
+        C_I = ti.cast(0.0, ti.f32)
+        if cn > 0.0 and alpha > 0.0:
+            manning_ratio = n_manning / (2.0 * cn * ti.sqrt(slope_max))
+            C_I = alpha * ti.pow(manning_ratio, 0.6) * (v + k2 * W0) / (v + k2) * dx
 
-        # Average last two iterates to stabilise period-2 orbits
-        # that arise when infiltration demand toggles above/below supply.
-        # Converged iterations are unaffected (Q_o ≈ Q_o_prev).
-        Q_o = (Q_o + Q_o_prev) / 2.0
+        Q_o = ti.cast(0.0, ti.f32)
+        if K > 1e-30:
+            if C_I < 1e-12:
+                Q_o = Q_max  # no infiltration
+            else:
+                # Initial guess above root: x0 = min(K^(1/5), (K/C_I)^(1/3))
+                x = ti.min(ti.pow(K, 0.2), ti.pow(K / C_I, 1.0 / 3.0))
+
+                # 5 Newton iterations — quadratic convergence from above
+                for _ in ti.static(range(5)):
+                    x2 = x * x
+                    x3 = x2 * x
+                    f = x3 * x2 + C_I * x3 - K  # x^5 + C_I*x^3 - K
+                    fp = 5.0 * x2 * x2 + 3.0 * C_I * x2  # 5x^4 + 3*C_I*x^2
+                    x -= f / fp  # fp > 0 guaranteed for x > 0
+                    x = ti.max(x, 0.0)
+
+                S = x * x * x * x * x  # x^5 = Q_in + Q_out
+                Q_o = ti.max(0.0, S - Q_in)
+                Q_o = ti.min(Q_o, Q_max)  # clamp to available water
 
         Q_out[i, j] = Q_o  # visible to downstream levels
         Q_daily[i, j] = (Q_in + Q_o) / 2.0  # Eq 12
