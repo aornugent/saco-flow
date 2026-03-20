@@ -14,13 +14,13 @@ import numpy as np
 from src.soil_moisture import soil_moisture_step
 
 
-def test_soil_moisture_exact_euler(grid):
-    """3.1: Single-cell exact Euler step with known parameters.
+def test_soil_moisture_exact_step(grid):
+    """3.1: Single-cell exponential integrator step with known parameters.
 
     M=0.3, V=10, I_inf=0.5, g_max=0.05, k1=5.0, rw=0.19, dt=1.0.
-    uptake = 0.05 * 0.3/(0.3+5.0) * 10.0 = 0.02830
-    loss = 0.19 * 0.3 = 0.057
-    M_new = 0.3 + 1.0 * (0.5 - 0.02830 - 0.057) = 0.7147
+    λ = g_max*V/(M+k1) + rw = 0.5/5.3 + 0.19 = 0.28434
+    M_eq = I/λ = 0.5/0.28434 = 1.75835
+    M_new = M_eq + (M - M_eq)*exp(-λ*dt) = 0.6611
     """
     n = 3
     fields = grid(n)
@@ -42,11 +42,11 @@ def test_soil_moisture_exact_euler(grid):
 
     M = fields.M.to_numpy()
 
-    # Hand computation
-    m, v = 0.3, 10.0
-    uptake = 0.05 * m / (m + 5.0) * v
-    loss = 0.19 * m
-    expected = m + 1.0 * (0.5 - uptake - loss)
+    # Hand computation: exponential integrator
+    m, v, I = 0.3, 10.0, 0.5
+    lam = 0.05 * v / (m + 5.0) + 0.19
+    M_eq = I / lam
+    expected = M_eq + (m - M_eq) * math.exp(-lam * 1.0)
 
     assert abs(M[1, 1] - expected) < 1e-4, f"M={M[1, 1]:.6f}, expected={expected:.6f}"
 
@@ -55,7 +55,7 @@ def test_soil_moisture_zero_infiltration_decay(grid):
     """3.2: Zero infiltration, known decay.
 
     M=1.0, V=0.0 (bare soil -> uptake=0), I_inf=0, rw=0.19, dt=1.0.
-    M_new = 1.0 - 0.19 = 0.81 (exact).
+    λ = rw = 0.19.  M_new = exp(-0.19) = 0.82697.
     """
     n = 3
     fields = grid(n)
@@ -76,7 +76,8 @@ def test_soil_moisture_zero_infiltration_decay(grid):
     )
 
     M = fields.M.to_numpy()
-    assert abs(M[1, 1] - 0.81) < 1e-6, f"M={M[1, 1]:.6f}, expected=0.81"
+    expected = math.exp(-0.19)
+    assert abs(M[1, 1] - expected) < 1e-5, f"M={M[1, 1]:.6f}, expected={expected:.6f}"
 
 
 def test_soil_moisture_steady_state(grid):
@@ -125,11 +126,12 @@ def test_soil_moisture_steady_state(grid):
     )
 
 
-def test_soil_moisture_mass_conservation(grid):
-    """3.4: Mass conservation over one step for every interior cell.
+def test_soil_moisture_matches_integrator(grid):
+    """3.4: Exponential integrator match for every interior cell.
 
-    |M_after - M_before - dt*(I_inf - uptake - loss)| < 1e-6
-    unless clamp fires (M_after = 0 and M_before + dt*dMdt < 0).
+    Verifies kernel output matches the analytical exponential integrator:
+    λ = g_max·V/(M+k1) + rw,  M_eq = I/λ,
+    M_new = M_eq + (M - M_eq)·exp(-λ·dt).
     """
     n = 8
     fields = grid(n)
@@ -164,23 +166,19 @@ def test_soil_moisture_mass_conservation(grid):
         for j in range(1, n - 1):
             if mask[i, j] == 0:
                 continue
-            m = M_before[i, j]
-            v = V0[i, j]
-            uptake = g_max * m / (m + k1) * v
-            loss = rw * m
-            dMdt = I0[i, j] - uptake - loss
-            unclamped = m + dt * dMdt
+            m = float(M_before[i, j])
+            v = float(V0[i, j])
+            I = float(I0[i, j])
 
-            if M_after[i, j] == 0.0:
-                # Clamp fired — verify it was needed
-                assert unclamped < 0.0, (
-                    f"Clamp at ({i},{j}) but unclamped={unclamped:.6f} >= 0"
-                )
-            else:
-                residual = abs(M_after[i, j] - unclamped)
-                assert residual < 1e-5, (
-                    f"Conservation at ({i},{j}): residual={residual:.2e}"
-                )
+            lam = g_max * v / (m + k1) + rw
+            M_eq = I / lam
+            expected = max(0.0, M_eq + (m - M_eq) * math.exp(-lam * dt))
+
+            residual = abs(float(M_after[i, j]) - expected)
+            assert residual < 1e-4, (
+                f"Mismatch at ({i},{j}): got={M_after[i,j]:.6f}, "
+                f"expected={expected:.6f}, residual={residual:.2e}"
+            )
 
 
 def test_soil_moisture_no_negative(grid):

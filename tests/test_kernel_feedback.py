@@ -19,17 +19,19 @@ _PARAMS = Params()
 
 
 def _make_rain(days, n_wet=70, mean_depth=0.00417, seed=42):
-    """Generate gamma-distributed rain on n_wet random days.
+    """Generate log-normally distributed rain on n_wet random days.
 
-    Gamma(k=0.5, θ=2*mean_depth) gives the same mean as
-    Exponential(mean_depth) but with fat tails representative of
-    Mediterranean rainfall (rare intense storms).
+    LogNormal(μ, σ=1) gives the same mean as Exponential(mean_depth)
+    but with fat tails representative of Mediterranean rainfall
+    (rare intense storms) while keeping the median close to exponential.
     Returns rain in m/day (converted to mm/day inside step_year).
     """
     rng = np.random.default_rng(seed)
+    sigma = 1.0
+    mu = float(np.log(mean_depth)) - sigma**2 / 2.0
     rain = np.zeros(days, dtype=np.float32)
     wet_days = rng.choice(days, n_wet, replace=False)
-    rain[wet_days] = rng.gamma(0.5, 2.0 * mean_depth, n_wet).astype(np.float32)
+    rain[wet_days] = rng.lognormal(mu, sigma, n_wet).astype(np.float32)
     return rain
 
 

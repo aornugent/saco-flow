@@ -23,6 +23,10 @@ def soil_moisture_step(
 
     dM/dt = I - g_max * M/(M+k1) * V - rw * M
 
+    Linearised as dM/dt ≈ I - λ·M with λ = g_max·V/(M₀+k1) + rw,
+    then integrated exactly: M(dt) = I/λ + (M₀ - I/λ)·exp(-λ·dt).
+    Unconditionally stable at any dt — no blow-up when V is large.
+
     Args:
         M: Soil moisture (read/write, in-place) [mm]
         I_inf: Infiltration rate [mm/day]
@@ -39,9 +43,13 @@ def soil_moisture_step(
 
         m = M[i, j]
         v = V[i, j]
+        I = I_inf[i, j]
 
-        uptake = g_max * m / (m + k1) * v
-        loss = rw * m
-        dMdt = I_inf[i, j] - uptake - loss
+        # Effective linear decay rate (frozen Michaelis ratio at m)
+        lam = g_max * v / (m + k1) + rw
 
-        M[i, j] = ti.max(0.0, m + dt * dMdt)
+        if lam * dt > 1e-6:
+            M_eq = I / lam
+            M[i, j] = ti.max(0.0, M_eq + (m - M_eq) * ti.exp(-lam * dt))
+        else:
+            M[i, j] = ti.max(0.0, m + dt * I)
