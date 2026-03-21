@@ -43,9 +43,9 @@ def test_soil_moisture_exact_step(grid):
     M = fields.M.to_numpy()
 
     # Hand computation: exponential integrator
-    m, v, I = 0.3, 10.0, 0.5
+    m, v, i_inf = 0.3, 10.0, 0.5
     lam = 0.05 * v / (m + 5.0) + 0.19
-    M_eq = I / lam
+    M_eq = i_inf / lam
     expected = M_eq + (m - M_eq) * math.exp(-lam * 1.0)
 
     assert abs(M[1, 1] - expected) < 1e-4, f"M={M[1, 1]:.6f}, expected={expected:.6f}"
@@ -168,15 +168,15 @@ def test_soil_moisture_matches_integrator(grid):
                 continue
             m = float(M_before[i, j])
             v = float(V0[i, j])
-            I = float(I0[i, j])
+            i_inf = float(I0[i, j])
 
             lam = g_max * v / (m + k1) + rw
-            M_eq = I / lam
+            M_eq = i_inf / lam
             expected = max(0.0, M_eq + (m - M_eq) * math.exp(-lam * dt))
 
             residual = abs(float(M_after[i, j]) - expected)
             assert residual < 1e-4, (
-                f"Mismatch at ({i},{j}): got={M_after[i,j]:.6f}, "
+                f"Mismatch at ({i},{j}): got={M_after[i, j]:.6f}, "
                 f"expected={expected:.6f}, residual={residual:.2e}"
             )
 

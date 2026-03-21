@@ -13,26 +13,10 @@ from src.flow import route_wavefront
 from src.params import Params
 from src.simulate import step_year
 from src.soil_moisture import soil_moisture_step
+from tests.rainfall import generate_rainfall
 
 # Shared params for feedback tests (paper Table I/II values, dx=5 m).
 _PARAMS = Params()
-
-
-def _make_rain(days, n_wet=70, mean_depth=0.00417, seed=42):
-    """Generate log-normally distributed rain on n_wet random days.
-
-    LogNormal(μ, σ=1) gives the same mean as Exponential(mean_depth)
-    but with fat tails representative of Mediterranean rainfall
-    (rare intense storms) while keeping the median close to exponential.
-    Returns rain in m/day (converted to mm/day inside step_year).
-    """
-    rng = np.random.default_rng(seed)
-    sigma = 1.0
-    mu = float(np.log(mean_depth)) - sigma**2 / 2.0
-    rain = np.zeros(days, dtype=np.float32)
-    wet_days = rng.choice(days, n_wet, replace=False)
-    rain[wet_days] = rng.lognormal(mu, sigma, n_wet).astype(np.float32)
-    return rain
 
 
 @pytest.mark.slow
@@ -48,7 +32,11 @@ def test_positive_feedback_vegetation_sustains(slope_grid):
     """
     n = 32
     params = _PARAMS
-    rain = _make_rain(90, n_wet=30)
+    # Intense wet season for small-grid feedback test: more storms, higher
+    # target so the 32-cell runon distance can accumulate enough moisture.
+    rain = generate_rainfall(
+        42, block_years=1, n_tiles=1, n_storms=40, wet_season_days=365
+    )
 
     results = {}
     for label, band_v in [("A", 0.0), ("B", 20.0)]:
@@ -237,7 +225,9 @@ def test_pattern_instability(slope_grid):
     """
     n = 32
     params = _PARAMS
-    rain = _make_rain(90, n_wet=30)
+    rain = generate_rainfall(
+        42, block_years=1, n_tiles=1, n_storms=40, wet_season_days=365
+    )
 
     fields = slope_grid(n, params.dx, p=params.p, step=0.07 * params.dx)
 
