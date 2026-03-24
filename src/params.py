@@ -38,6 +38,17 @@ class Params:
     c1: float = 0.005  # flow dispersal coefficient [mm⁻¹]
     c2: float = 0.0005  # flow dispersal saturation [1/d]
 
+    # Green-Ampt infiltration (surface water solver)
+    K_s: float = 15.0  # saturated hydraulic conductivity [mm/hr]
+    psi_f: float = 110.0  # wetting front suction head [mm]
+    delta_theta: float = 0.35  # moisture deficit [-]
+
+    # Storm event parameters
+    storm_intensity: float = 10.0  # mean rainfall intensity [mm/hr]
+    cfl: float = 0.4  # CFL safety factor [-]
+    dt_max: float = 0.01  # maximum substep [hr] (36 s)
+    h_drain: float = 0.01  # drainage tail cutoff [mm]
+
     # Sediment transport (Table I + "Model coupling" section)
     gamma: float = 1.0  # transport coefficient [-]
     m_exp: float = 1.65  # discharge exponent [-]

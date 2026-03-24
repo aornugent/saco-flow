@@ -5,11 +5,11 @@ from src.flow import (
     accumulate_annual_Q,
     compute_flow_fractions,
     prepare_levels,
-    route_wavefront,
 )
 from src.params import Params
 from src.sediment import sediment_transport, update_elevation
 from src.soil_moisture import soil_moisture_step
+from src.surface import step_storm
 from src.vegetation import vegetation_step
 
 
@@ -17,34 +17,19 @@ def step_day(
     fields: Fields,
     params: Params,
     *,
+    rain_mm: float = 0.0,
     dt: float = 1.0,
 ):
-    """Run one daily timestep: water routing, soil moisture, vegetation.
+    """Run one daily timestep: surface water, soil moisture, vegetation.
 
     Args:
         fields: Simulation fields (flow_frac and levels must be precomputed)
         params: Physical constants
+        rain_mm: Total rainfall this day [mm]
         dt: Timestep [days]
     """
-    # section 2: Water routing — one upstream-to-downstream sweep
-    route_wavefront(
-        fields.sorted_idx,
-        fields.n_active,
-        fields.Q_out,
-        fields.Q_daily,
-        fields.R,
-        fields.I_inf,
-        fields.z,
-        fields.V,
-        fields.flow_frac,
-        fields.mask,
-        params.dx,
-        params.n_manning,
-        params.cn,
-        params.alpha,
-        params.k2,
-        params.W0,
-    )
+    # section 2: Surface water — diffusion wave + Green-Ampt infiltration
+    step_storm(fields, params, rain_mm)
 
     # section 3: Soil moisture (no lateral diffusion per paper)
     # I_inf is already in mm/day — no conversion needed.
@@ -106,9 +91,8 @@ def step_year(
     # Daily loop — accumulate Q_daily into Q_annual for sediment transport
     fields.Q_annual.fill(0.0)
     for day in range(days):
-        if rain is not None:
-            fields.R.fill(float(rain[day]) * 1000.0)  # m/day -> mm/day
-        step_day(fields, params, dt=dt)
+        rain_mm = float(rain[day]) * 1000.0 if rain is not None else 0.0  # m/day -> mm
+        step_day(fields, params, rain_mm=rain_mm, dt=dt)
         accumulate_annual_Q(fields.Q_annual, fields.Q_daily, fields.mask)
 
     # section 5: Sediment transport (annual, uses cumulative annual Q)
