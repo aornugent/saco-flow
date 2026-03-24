@@ -6,7 +6,9 @@ diffusion wave (LISFLOOD-FP style).  Infiltration is operator-split as a
 point-wise sink; the two kernels share the surface depth field h.
 
 All depths in mm, times in hours within the storm substep loop.
-Interface fields (I_inf, Q_daily) are converted to mm/day at the end.
+Internal kernel arithmetic in SI (metres, seconds); conversions at
+field boundaries only.  Interface fields (I_inf, Q_daily) are
+converted to mm/day and mm*m/day respectively at the end.
 """
 
 import taichi as ti
@@ -98,24 +100,21 @@ def diffusion_wave_step(
     Manning flux: q = h_face^(5/3) / n_M * sqrt(|d_eta|/dx) * sign(d_eta)
     where eta = z + h (water surface elevation).
 
+    All internal arithmetic in SI (metres, seconds).  h is converted
+    mm→m on entry and m→mm on exit — one conversion in, one out.
+
     Stencil op: read h, write h_new — caller swaps after.
 
     Args:
         h: Surface water depth (read) [mm]
         h_new: Surface water depth (write) [mm]
-        z: Elevation [m]  (converted to mm internally)
+        z: Elevation [m]
         mask: Active cell mask
-        dx: Cell spacing [m]  (converted to mm internally)
+        dx: Cell spacing [m]
         dt: Substep duration [hr]
         n_M: Manning's roughness [s/m^(1/3)]
     """
     n = h.shape[0]
-    # Convert spatial units: z is in m, h is in mm, dx is in m.
-    # Work in mm and mm-based flux to keep h updates in mm.
-    # eta in mm: z[i,j]*1000 + h[i,j]
-    # dx in mm: dx * 1000
-    # dt in seconds: dt * 3600
-    dx_mm = dx * 1000.0  # [mm]
     dt_s = dt * 3600.0  # [s]
 
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
@@ -123,29 +122,37 @@ def diffusion_wave_step(
             h_new[i, j] = 0.0
             continue
 
-        flux_sum = 0.0  # net outward flux [mm/s]
-        eta_here = z[i, j] * 1000.0 + h[i, j]  # [mm]
+        h_m = h[i, j] / 1000.0  # [m]
+        eta_here = z[i, j] + h_m  # [m]
+        flux_sum = 0.0  # net outward flux [m/s]
 
         for di, dj in ti.static(CARD):
             ni, nj = i + di, j + dj
-            # Boundary cells (mask=0) act as open outflow: h=0, absorb flux
-            eta_there = z[ni, nj] * 1000.0 + h[ni, nj]  # [mm]
-            if mask[ni, nj] == 0:
-                eta_there = z[ni, nj] * 1000.0  # boundary: h=0
-            d_eta = (eta_here - eta_there) / dx_mm  # slope [-]
 
-            h_face = ti.max(h[i, j], h[ni, nj])  # upwind depth [mm]
             if mask[ni, nj] == 0:
-                h_face = h[i, j]  # boundary: only local depth matters
-            # Only allow outflow to boundary (d_eta > 0)
-            allow = mask[ni, nj] == 1 or d_eta > 0.0
-            if allow and h_face > 1e-6 and ti.abs(d_eta) > 1e-10:
-                h_m = h_face / 1000.0  # [m]
-                speed = ti.pow(h_m, 5.0 / 3.0) / n_M * ti.sqrt(ti.abs(d_eta))  # [m^2/s]
-                sign = 1.0 if d_eta > 0.0 else -1.0
-                flux_sum += sign * speed / dx * 1000.0  # [mm/s]
+                # Boundary: h=0 outflow sink; only allow outward flux
+                eta_there = z[ni, nj]  # [m], h=0
+                d_eta = (eta_here - eta_there) / dx  # slope [-]
+                if d_eta > 1e-10 and h_m > 1e-6:
+                    q = ti.pow(h_m, 5.0 / 3.0) / n_M * ti.sqrt(d_eta)  # [m^2/s]
+                    flux_sum += q / dx  # [m/s]
+            else:
+                # Interior neighbor
+                h_nb = h[ni, nj] / 1000.0  # [m]
+                eta_there = z[ni, nj] + h_nb  # [m]
+                d_eta = (eta_here - eta_there) / dx  # slope [-]
 
-        h_new[i, j] = ti.max(0.0, h[i, j] - dt_s * flux_sum)
+                # Upwind depth: from the cell with higher water surface
+                h_face = h_m if eta_here >= eta_there else h_nb  # [m]
+
+                if h_face > 1e-6 and ti.abs(d_eta) > 1e-10:
+                    q = (
+                        ti.pow(h_face, 5.0 / 3.0) / n_M * ti.sqrt(ti.abs(d_eta))
+                    )  # [m^2/s]
+                    sign = 1.0 if d_eta > 0.0 else -1.0
+                    flux_sum += sign * q / dx  # [m/s]
+
+        h_new[i, j] = ti.max(0.0, h[i, j] - dt_s * flux_sum * 1000.0)  # [mm]
 
 
 @ti.kernel
@@ -200,42 +207,39 @@ def accumulate_Q_substep(
     """Accumulate time-weighted discharge magnitude into Q_daily.
 
     Computes local unit-width discharge from Manning's equation and
-    adds dt-weighted contribution.  After the storm loop, Q_daily
-    holds the time-integrated discharge [mm*m*hr/day-normalisation
-    handled by caller].
+    adds q * dt contribution in SI units [m^2/s * hr].  The caller
+    converts the final sum to [mm*m/day] once after the storm loop.
 
     Args:
         h: Surface water depth [mm]
         z: Elevation [m]
-        Q_daily: Accumulated discharge (read/write) [mm*m]
+        Q_daily: Accumulated discharge (read/write) [m^2/s * hr]
         mask: Active cell mask
         dx: Cell spacing [m]
         n_M: Manning's roughness [s/m^(1/3)]
         dt: Substep duration [hr]
     """
     n = h.shape[0]
-    dx_mm = dx * 1000.0
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
         if mask[i, j] == 0 or h[i, j] < 1e-6:
             continue
 
+        h_m = h[i, j] / 1000.0  # [m]
+        eta_here = z[i, j] + h_m  # [m]
+
         # Max outward flux magnitude as proxy for local discharge
         q_max = 0.0  # [m^2/s]
-        eta_here = z[i, j] * 1000.0 + h[i, j]
         for di, dj in ti.static(CARD):
             ni, nj = i + di, j + dj
             if mask[ni, nj] == 1:
-                eta_there = z[ni, nj] * 1000.0 + h[ni, nj]
-                d_eta = (eta_here - eta_there) / dx_mm
+                h_nb = h[ni, nj] / 1000.0  # [m]
+                eta_there = z[ni, nj] + h_nb  # [m]
+                d_eta = (eta_here - eta_there) / dx  # [-]
                 if d_eta > 1e-10:
-                    h_m = h[i, j] / 1000.0
                     q = ti.pow(h_m, 5.0 / 3.0) / n_M * ti.sqrt(d_eta)  # [m^2/s]
                     q_max = ti.max(q_max, q)
 
-        # Convert to mm*m/day contribution for this substep:
-        # q [m^2/s] * 1000 [mm/m] * 3600*24 [s/day] = mm*m/day
-        # weight by dt/duration is handled by caller normalisation
-        Q_daily[i, j] += q_max * 1000.0 * 86400.0 * dt  # [mm*m/day * hr]
+        Q_daily[i, j] += q_max * dt  # [m^2/s * hr]
 
 
 def step_storm(fields: Fields, params: Params, rain_mm: float):
@@ -258,7 +262,10 @@ def step_storm(fields: Fields, params: Params, rain_mm: float):
     # Storm duration from intensity
     duration_hr = rain_mm / params.storm_intensity  # [hr]
 
-    # Reset storm state
+    # Reset storm state.  F_inf reset assumes soil fully drains between
+    # events (dry-soil initial condition).  Known simplification: multi-day
+    # storm sequences on heavy clay would retain the wetting front.
+    # Richards equation will carry theta across events naturally.
     fields.h.fill(0.0)
     fields.h_new.fill(0.0)
     fields.F_inf.fill(0.0)
@@ -405,14 +412,16 @@ def _normalise_Q(
     mask: ti.template(),
     total_hr: ti.f32,
 ):
-    """Normalise time-integrated Q to daily-average discharge.
+    """Convert time-integrated Q to daily-average discharge [mm*m/day].
 
-    Q_daily currently holds sum of (q * dt) in [mm*m/day * hr].
-    Divide by total_hr to get time-average [mm*m/day].
+    Q_daily holds sum of (q [m^2/s] * dt [hr]).
+    Time-average: divide by total_hr → [m^2/s]
+    Unit convert: * 1000 [mm/m] * 86400 [s/day] → [mm*m/day]
     """
     n = Q_daily.shape[0]
+    scale = 1000.0 * 86400.0 / total_hr  # [mm/m * s/day / hr]
     for i, j in ti.ndrange(n, n):
         if mask[i, j] == 1:
-            Q_daily[i, j] /= total_hr
+            Q_daily[i, j] *= scale
         else:
             Q_daily[i, j] = 0.0

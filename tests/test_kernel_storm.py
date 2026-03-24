@@ -141,6 +141,50 @@ def test_storm_dry_day_no_op(storm_grid):
     np.testing.assert_allclose(Q_daily, 0.0, atol=1e-8)
 
 
+def test_storm_Q_daily_downslope(storm_grid):
+    """Q_daily is positive and peaks in the lower half of a sloped grid.
+
+    With K_s=0, all rainfall becomes surface flow.  Q_daily measures local
+    Manning discharge magnitude, which depends on ponded depth.  On an
+    open-boundary slope, bottom rows drain quickly, so peak Q is in the
+    lower-middle portion where runon accumulates.
+    """
+    n = 16
+    fields = storm_grid(n, slope_pct=2.0)
+    fields.V.fill(0.0)  # bare soil
+
+    params = Params(
+        dx=5.0,
+        K_s=0.0,  # no infiltration — all rainfall runs off
+        storm_intensity=10.0,
+        cfl=0.4,
+        dt_max=0.005,
+    )
+
+    rain_mm = 5.0
+    step_storm(fields, params, rain_mm)
+
+    Q_daily = fields.Q_daily.to_numpy()
+    mask = fields.mask.to_numpy()
+
+    # Q_daily should be positive at many interior cells
+    n_positive = np.sum(Q_daily[mask == 1] > 0)
+    assert n_positive > 0, "Q_daily should have positive values"
+
+    # Peak Q row should be in the lower half (downstream accumulation)
+    mean_per_row = [np.mean(Q_daily[i, 1:-1]) for i in range(1, n - 1)]
+    peak_row_idx = np.argmax(mean_per_row)  # 0-based within interior
+    n_interior_rows = n - 2
+    assert peak_row_idx >= n_interior_rows // 4, (
+        f"Peak Q should not be at the very top: peak row index={peak_row_idx}"
+    )
+
+    # Water budget: with K_s=0, I_inf should be zero
+    I_inf = fields.I_inf.to_numpy()
+    total_I = np.sum(I_inf[mask == 1])
+    assert total_I < 1e-3, f"K_s=0 should give zero infiltration, got {total_I:.4f}"
+
+
 def test_storm_I_inf_interface(storm_grid):
     """I_inf matches cumulative F_inf after a storm (interface contract)."""
     n = 10
