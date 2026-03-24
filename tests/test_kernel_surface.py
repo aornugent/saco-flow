@@ -279,29 +279,40 @@ def test_adaptive_dt_scales_with_h(grid):
     """dt_adapt decreases as max(h) increases; equals dt_max when dry."""
     n = 8
     fields = grid(n)
-    fields.z.from_numpy(np.zeros((n, n), dtype=np.float32))
 
+    # Tilted plane so slope is non-trivial (1% grade)
     dx = 5.0
+    z = np.zeros((n, n), dtype=np.float32)
+    for i in range(n):
+        z[i, :] = float(n - 1 - i) * 0.01 * dx  # [m]
+    fields.z.from_numpy(z)
+
     n_M = 0.05
     cfl = 0.4
     dt_max = 0.01  # hr
 
     # Dry domain → dt_max
     fields.h.fill(0.0)
-    compute_adaptive_dt(fields.h, fields.mask, dx, n_M, cfl, dt_max, fields.dt_adapt)
+    compute_adaptive_dt(
+        fields.h, fields.z, fields.mask, dx, n_M, cfl, dt_max, fields.dt_adapt
+    )
     assert fields.dt_adapt[None] == pytest.approx(dt_max)
 
     # Small h → large dt
     h = np.zeros((n, n), dtype=np.float32)
     h[4, 4] = 1.0  # 1 mm
     fields.h.from_numpy(h)
-    compute_adaptive_dt(fields.h, fields.mask, dx, n_M, cfl, dt_max, fields.dt_adapt)
+    compute_adaptive_dt(
+        fields.h, fields.z, fields.mask, dx, n_M, cfl, dt_max, fields.dt_adapt
+    )
     dt_small_h = fields.dt_adapt[None]
 
     # Large h → small dt
     h[4, 4] = 100.0  # 100 mm
     fields.h.from_numpy(h)
-    compute_adaptive_dt(fields.h, fields.mask, dx, n_M, cfl, dt_max, fields.dt_adapt)
+    compute_adaptive_dt(
+        fields.h, fields.z, fields.mask, dx, n_M, cfl, dt_max, fields.dt_adapt
+    )
     dt_large_h = fields.dt_adapt[None]
 
     assert dt_large_h < dt_small_h, (
