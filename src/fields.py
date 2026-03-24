@@ -24,6 +24,10 @@ class Fields:
     mask: ti.Field  # active cell mask (1=active, 0=boundary)
     flow_frac: ti.Field  # MFD flow fractions to 8 neighbors (n, n, 8)
     sorted_idx: ti.Field  # flat cell indices in topological order (n*n,)
+    h: ti.Field  # surface water depth [mm] (diffusion wave state)
+    h_new: ti.Field  # surface water depth write buffer [mm]
+    F_inf: ti.Field  # cumulative infiltration [mm] (Green-Ampt state)
+    dt_adapt: ti.Field  # 0-D scalar for adaptive CFL timestep [hr]
     n_active: int = 0  # number of active cells in sorted_idx
 
     def swap(self, name: str):
@@ -56,4 +60,8 @@ def allocate(n: int) -> Fields:
         mask=ti.field(ti.i32, shape=(n, n)),
         flow_frac=ti.field(ti.f32, shape=(n, n, 8)),
         sorted_idx=ti.field(ti.i32, shape=(n * n,)),
+        h=ti.field(ti.f32, shape=(n, n)),
+        h_new=ti.field(ti.f32, shape=(n, n)),
+        F_inf=ti.field(ti.f32, shape=(n, n)),
+        dt_adapt=ti.field(ti.f32, shape=()),
     )
