@@ -158,6 +158,7 @@ def diffusion_wave_step(
 @ti.kernel
 def compute_adaptive_dt(
     h: ti.template(),
+    z: ti.template(),
     mask: ti.template(),
     dx: ti.f32,
     n_M: ti.f32,
@@ -165,12 +166,14 @@ def compute_adaptive_dt(
     dt_max: ti.f32,
     result: ti.template(),
 ):
-    """CFL-limited global dt from max wave speed across domain.
+    """CFL-limited global dt from max diffusivity across domain.
 
-    Wave speed for diffusion wave: c ~ (5/3) * h^(2/3) / n_M.
+    Diffusion coefficient: D = h^(5/3) / (n_M * sqrt(S))  [m^2/s]
+    CFL for explicit diffusion: dt <= cfl * dx^2 / (4*D)
 
     Args:
         h: Surface water depth [mm]
+        z: Elevation [m]
         mask: Active cell mask
         dx: Cell spacing [m]
         n_M: Manning's roughness [s/m^(1/3)]
@@ -178,17 +181,24 @@ def compute_adaptive_dt(
         dt_max: Maximum allowed substep [hr]
         result: 0-D field to write adaptive dt [hr]
     """
-    max_speed = 0.0  # [m/s]
+    max_D = 0.0  # [m^2/s]
     n = h.shape[0]
     for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
         if mask[i, j] == 0 or h[i, j] < 1e-6:
             continue
         h_m = h[i, j] / 1000.0  # [m]
-        speed = (5.0 / 3.0) * ti.pow(h_m, 2.0 / 3.0) / n_M  # [m/s]
-        ti.atomic_max(max_speed, speed)
+        # Local slope from max neighbor gradient
+        S_local = 1e-4  # floor
+        for di, dj in ti.static(CARD):
+            ni, nj = i + di, j + dj
+            if mask[ni, nj] == 1:
+                dz = (z[i, j] - z[ni, nj]) / dx
+                S_local = ti.max(S_local, ti.abs(dz))
+        D = ti.pow(h_m, 5.0 / 3.0) / (n_M * ti.sqrt(S_local))  # [m^2/s]
+        ti.atomic_max(max_D, D)
 
-    if max_speed > 0.0:
-        dt_cfl = cfl * dx / max_speed  # [s]
+    if max_D > 0.0:
+        dt_cfl = cfl * dx * dx / (4.0 * max_D)  # [s]
         result[None] = ti.min(dt_cfl / 3600.0, dt_max)  # [hr]
     else:
         result[None] = dt_max
@@ -277,6 +287,7 @@ def step_storm(fields: Fields, params: Params, rain_mm: float):
     while t_elapsed < duration_hr:
         compute_adaptive_dt(
             fields.h,
+            fields.z,
             fields.mask,
             params.dx,
             params.n_manning,
@@ -331,6 +342,7 @@ def step_storm(fields: Fields, params: Params, rain_mm: float):
     while t_drain < t_drain_max:
         compute_adaptive_dt(
             fields.h,
+            fields.z,
             fields.mask,
             params.dx,
             params.n_manning,
