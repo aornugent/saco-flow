@@ -224,7 +224,7 @@ def test_pattern_instability(slope_grid):
     """10.4: Spatial instability — uniform V differentiates along the slope.
 
     32x32 slope: uniform V=1 everywhere (just enough to trigger feedbacks).
-    Marginal rainfall (30 wet days at 4.17 mm mean) — insufficient to
+    Marginal rainfall (15 wet days at 4.17 mm mean) — insufficient to
     sustain vegetation from local rainfall alone, but runon at the
     bottom of the slope concentrates water.
 
@@ -235,7 +235,7 @@ def test_pattern_instability(slope_grid):
     """
     n = 32
     params = _PARAMS
-    rain = _make_rain(90, n_wet=30)
+    rain = _make_rain(90, n_wet=15)
 
     fields = slope_grid(n, params.dx, p=params.p, step=0.07 * params.dx)
 
