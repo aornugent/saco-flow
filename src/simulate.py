@@ -9,7 +9,7 @@ from src.flow import (
 from src.params import Params
 from src.sediment import sediment_transport, update_elevation
 from src.soil_moisture import soil_moisture_step
-from src.surface import step_storm
+from src.surface import decay_F_inf, step_storm
 from src.vegetation import vegetation_step
 
 
@@ -44,6 +44,11 @@ def step_day(
         params.rw,
         dt,
     )
+
+    # Decay wetting front depth between storms, keeping F_inf consistent
+    # with M dynamics.  Dry days shrink F so the next storm starts with
+    # high suction; wet sequences keep F large and pond immediately.
+    decay_F_inf(fields.F_inf, fields.mask, params.rw, dt)
 
     # section 4: Vegetation
     vegetation_step(
