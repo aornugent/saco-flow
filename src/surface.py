@@ -258,6 +258,7 @@ def substep_fused(
     h_new: ti.template(),
     z: ti.template(),
     F_inf: ti.template(),
+    I_inf: ti.template(),
     V: ti.template(),
     Q_daily: ti.template(),
     mask: ti.template(),
@@ -277,7 +278,8 @@ def substep_fused(
     Python dispatch overhead.  Rainfall and infiltration are computed
     into a local register before the stencil read, so h[ni,nj] remains
     the unmodified read buffer.  F_inf is updated in-place (point-wise,
-    no neighbor reads).  Q is accumulated from the pre-diffusion state.
+    no neighbor reads).  I_inf accumulates infiltrated volume for the
+    daily interface.  Q is accumulated from the pre-diffusion state.
 
     Stencil op: read h, write h_new — caller swaps after.
 
@@ -286,6 +288,7 @@ def substep_fused(
         h_new: Surface water depth (write) [mm]
         z: Elevation [m]
         F_inf: Cumulative infiltration (read/write) [mm]
+        I_inf: Daily infiltration accumulator (read/write) [mm]
         V: Vegetation density [g/m^2]
         Q_daily: Accumulated discharge (read/write) [m^2/s * hr]
         mask: Active cell mask
@@ -318,6 +321,7 @@ def substep_fused(
             I_vol = ti.min(f_rate * dt, h_local)  # [mm]
             h_local -= I_vol
             F_inf[i, j] += I_vol
+            I_inf[i, j] += I_vol
 
         # --- Point-wise: Q accumulation (pre-diffusion state) ---
         h_local_m = h_local / 1000.0  # [m]
@@ -387,13 +391,12 @@ def step_storm(fields: Fields, params: Params, rain_mm: float):
     # Storm duration from intensity
     duration_hr = rain_mm / params.storm_intensity  # [hr]
 
-    # Reset storm state.  F_inf reset assumes soil fully drains between
-    # events (dry-soil initial condition).  Known simplification: multi-day
-    # storm sequences on heavy clay would retain the wetting front.
-    # Richards equation will carry theta across events naturally.
+    # Reset storm state.  F_inf persists across storms and decays between
+    # them (see decay_F_inf), so only surface water and daily accumulators
+    # are zeroed here.
     fields.h.fill(0.0)
     fields.h_new.fill(0.0)
-    fields.F_inf.fill(0.0)
+    fields.I_inf.fill(0.0)
     fields.Q_daily.fill(0.0)
 
     t_elapsed = 0.0  # [hr]
@@ -418,6 +421,7 @@ def step_storm(fields: Fields, params: Params, rain_mm: float):
             fields.h_new,
             fields.z,
             fields.F_inf,
+            fields.I_inf,
             fields.V,
             fields.Q_daily,
             fields.mask,
@@ -460,6 +464,7 @@ def step_storm(fields: Fields, params: Params, rain_mm: float):
             fields.h_new,
             fields.z,
             fields.F_inf,
+            fields.I_inf,
             fields.V,
             fields.Q_daily,
             fields.mask,
@@ -480,9 +485,7 @@ def step_storm(fields: Fields, params: Params, rain_mm: float):
     total_hr = t_elapsed + t_drain
 
     # --- Write interface fields ---
-    # I_inf: cumulative infiltration over the day [mm/day]
-    # F_inf already holds cumulative mm; I_inf = F_inf (one event per day)
-    _copy_F_to_I(fields.F_inf, fields.I_inf, fields.mask)
+    # I_inf was accumulated directly during substeps [mm/day].
 
     # Q_daily: normalise time-integrated discharge to daily average [mm*m/day]
     if total_hr > 0.0:
@@ -490,17 +493,29 @@ def step_storm(fields: Fields, params: Params, rain_mm: float):
 
 
 @ti.kernel
-def _copy_F_to_I(
+def decay_F_inf(
     F_inf: ti.template(),
-    I_inf: ti.template(),
     mask: ti.template(),
+    rw: ti.f32,
+    dt: ti.f32,
 ):
+    """Decay wetting front depth proportionally to soil moisture loss.
+
+    Between storms, near-surface soil dries via drainage and evaporation.
+    F decays at the same relative rate as M (using rw), partially resetting
+    the wetting front so the next storm starts with appropriately high
+    suction.  Point-wise, in-place.
+
+    Args:
+        F_inf: Cumulative infiltration (read/write) [mm]
+        mask: Active cell mask
+        rw: Soil moisture loss rate [1/day]
+        dt: Timestep [days]
+    """
     n = F_inf.shape[0]
     for i, j in ti.ndrange(n, n):
         if mask[i, j] == 1:
-            I_inf[i, j] = F_inf[i, j]
-        else:
-            I_inf[i, j] = 0.0
+            F_inf[i, j] = ti.max(0.0, F_inf[i, j] * (1.0 - rw * dt))
 
 
 @ti.kernel
