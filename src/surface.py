@@ -252,6 +252,121 @@ def accumulate_Q_substep(
         Q_daily[i, j] += q_max * dt  # [m^2/s * hr]
 
 
+@ti.kernel
+def substep_fused(
+    h: ti.template(),
+    h_new: ti.template(),
+    z: ti.template(),
+    F_inf: ti.template(),
+    V: ti.template(),
+    Q_daily: ti.template(),
+    mask: ti.template(),
+    dx: ti.f32,
+    dt: ti.f32,
+    n_M: ti.f32,
+    intensity: ti.f32,
+    K_s: ti.f32,
+    psi_f: ti.f32,
+    delta_theta: ti.f32,
+    k2: ti.f32,
+    W0: ti.f32,
+):
+    """Rainfall + infiltration + diffusion wave + Q accumulation in one pass.
+
+    Fuses four point-wise/stencil kernels into a single launch to cut
+    Python dispatch overhead.  Rainfall and infiltration are computed
+    into a local register before the stencil read, so h[ni,nj] remains
+    the unmodified read buffer.  F_inf is updated in-place (point-wise,
+    no neighbor reads).  Q is accumulated from the pre-diffusion state.
+
+    Stencil op: read h, write h_new — caller swaps after.
+
+    Args:
+        h: Surface water depth (read) [mm]
+        h_new: Surface water depth (write) [mm]
+        z: Elevation [m]
+        F_inf: Cumulative infiltration (read/write) [mm]
+        V: Vegetation density [g/m^2]
+        Q_daily: Accumulated discharge (read/write) [m^2/s * hr]
+        mask: Active cell mask
+        dx: Cell spacing [m]
+        dt: Substep duration [hr]
+        n_M: Manning's roughness [s/m^(1/3)]
+        intensity: Rainfall intensity [mm/hr], 0.0 during drainage
+        K_s: Saturated hydraulic conductivity [mm/hr]
+        psi_f: Wetting front suction head [mm]
+        delta_theta: Moisture deficit [-]
+        k2: Vegetation half-saturation for infiltration [g/m^2]
+        W0: Bare-soil infiltration fraction [-]
+    """
+    n = h.shape[0]
+    dt_s = dt * 3600.0  # [s]
+
+    for i, j in ti.ndrange((1, n - 1), (1, n - 1)):
+        if mask[i, j] == 0:
+            h_new[i, j] = 0.0
+            continue
+
+        # --- Point-wise: rainfall + infiltration (before stencil read) ---
+        h_local = h[i, j] + intensity * dt  # [mm]
+
+        if h_local > 0.0:
+            v = V[i, j]
+            K_eff = K_s * (v + k2 * W0) / (v + k2)  # [mm/hr]
+            F_cur = ti.max(F_inf[i, j], 1e-6)
+            f_rate = K_eff * (1.0 + psi_f * delta_theta / F_cur)  # [mm/hr]
+            I_vol = ti.min(f_rate * dt, h_local)  # [mm]
+            h_local -= I_vol
+            F_inf[i, j] += I_vol
+
+        # --- Point-wise: Q accumulation (pre-diffusion state) ---
+        h_local_m = h_local / 1000.0  # [m]
+        if h_local_m > 1e-6:
+            eta_q = z[i, j] + h_local_m  # [m]
+            q_max = 0.0  # [m^2/s]
+            for di, dj in ti.static(CARD):
+                ni, nj = i + di, j + dj
+                if mask[ni, nj] == 1:
+                    h_nb_q = h[ni, nj] / 1000.0  # [m]
+                    eta_nb = z[ni, nj] + h_nb_q  # [m]
+                    d_eta_q = (eta_q - eta_nb) / dx  # [-]
+                    if d_eta_q > 1e-10:
+                        q = (
+                            ti.pow(h_local_m, 5.0 / 3.0) / n_M * ti.sqrt(d_eta_q)
+                        )  # [m^2/s]
+                        q_max = ti.max(q_max, q)
+            Q_daily[i, j] += q_max * dt  # [m^2/s * hr]
+
+        # --- Stencil: diffusion wave ---
+        eta_here = z[i, j] + h_local_m  # [m]
+        flux_sum = 0.0  # net outward flux [m/s]
+
+        for di, dj in ti.static(CARD):
+            ni, nj = i + di, j + dj
+
+            if mask[ni, nj] == 0:
+                eta_there = z[ni, nj]  # [m], h=0
+                d_eta = (eta_here - eta_there) / dx
+                if d_eta > 1e-10 and h_local_m > 1e-6:
+                    q = ti.pow(h_local_m, 5.0 / 3.0) / n_M * ti.sqrt(d_eta)  # [m^2/s]
+                    flux_sum += q / dx  # [m/s]
+            else:
+                h_nb = h[ni, nj] / 1000.0  # [m]
+                eta_there = z[ni, nj] + h_nb  # [m]
+                d_eta = (eta_here - eta_there) / dx
+
+                h_face = h_local_m if eta_here >= eta_there else h_nb  # [m]
+
+                if h_face > 1e-6 and ti.abs(d_eta) > 1e-10:
+                    q = (
+                        ti.pow(h_face, 5.0 / 3.0) / n_M * ti.sqrt(ti.abs(d_eta))
+                    )  # [m^2/s]
+                    sign = 1.0 if d_eta > 0.0 else -1.0
+                    flux_sum += sign * q / dx  # [m/s]
+
+        h_new[i, j] = ti.max(0.0, h_local - dt_s * flux_sum * 1000.0)  # [mm]
+
+
 def step_storm(fields: Fields, params: Params, rain_mm: float):
     """Run a storm event with sub-hourly adaptive timestepping.
 
@@ -298,41 +413,25 @@ def step_storm(fields: Fields, params: Params, rain_mm: float):
         dt_sub = fields.dt_adapt[None]
         dt_sub = min(dt_sub, duration_hr - t_elapsed)
 
-        apply_rainfall(fields.h, fields.mask, params.storm_intensity, dt_sub)
-
-        infiltration_green_ampt(
+        substep_fused(
             fields.h,
+            fields.h_new,
+            fields.z,
             fields.F_inf,
             fields.V,
+            fields.Q_daily,
             fields.mask,
+            params.dx,
+            dt_sub,
+            params.n_manning,
+            params.storm_intensity,
             params.K_s,
             params.psi_f,
             params.delta_theta,
             params.k2,
             params.W0,
-            dt_sub,
-        )
-
-        diffusion_wave_step(
-            fields.h,
-            fields.h_new,
-            fields.z,
-            fields.mask,
-            params.dx,
-            dt_sub,
-            params.n_manning,
         )
         fields.swap("h")
-
-        accumulate_Q_substep(
-            fields.h,
-            fields.z,
-            fields.Q_daily,
-            fields.mask,
-            params.dx,
-            params.n_manning,
-            dt_sub,
-        )
 
         t_elapsed += dt_sub
 
@@ -356,39 +455,25 @@ def step_storm(fields: Fields, params: Params, rain_mm: float):
 
         dt_sub = min(dt_sub, t_drain_max - t_drain)
 
-        infiltration_green_ampt(
+        substep_fused(
             fields.h,
+            fields.h_new,
+            fields.z,
             fields.F_inf,
             fields.V,
+            fields.Q_daily,
             fields.mask,
+            params.dx,
+            dt_sub,
+            params.n_manning,
+            0.0,  # no rainfall during drainage
             params.K_s,
             params.psi_f,
             params.delta_theta,
             params.k2,
             params.W0,
-            dt_sub,
-        )
-
-        diffusion_wave_step(
-            fields.h,
-            fields.h_new,
-            fields.z,
-            fields.mask,
-            params.dx,
-            dt_sub,
-            params.n_manning,
         )
         fields.swap("h")
-
-        accumulate_Q_substep(
-            fields.h,
-            fields.z,
-            fields.Q_daily,
-            fields.mask,
-            params.dx,
-            params.n_manning,
-            dt_sub,
-        )
 
         t_drain += dt_sub
 
